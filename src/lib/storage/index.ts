@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { env } from "@/lib/env";
 
 export type ObjectHead = { byteSize: number; mimeType: string | null } | null;
 
@@ -12,17 +13,17 @@ export interface StorageProvider {
 }
 
 export function isStorageConfigured() {
-  return !!(process.env.S3_ENDPOINT && process.env.S3_BUCKET && process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY);
+  return !!(env("S3_ENDPOINT") && env("S3_BUCKET") && env("S3_ACCESS_KEY_ID") && env("S3_SECRET_ACCESS_KEY"));
 }
 
 export class S3Storage implements StorageProvider {
   private client: S3Client;
-  constructor(private bucket = process.env.S3_BUCKET!) {
+  constructor(private bucket = env("S3_BUCKET")!) {
     this.client = new S3Client({
-      endpoint: process.env.S3_ENDPOINT,
-      region: process.env.S3_REGION || "auto",
+      endpoint: env("S3_ENDPOINT"),
+      region: env("S3_REGION") || "auto",
       forcePathStyle: true,
-      credentials: { accessKeyId: process.env.S3_ACCESS_KEY_ID!, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY! },
+      credentials: { accessKeyId: env("S3_ACCESS_KEY_ID")!, secretAccessKey: env("S3_SECRET_ACCESS_KEY")! },
     });
   }
   presignPut(key: string, mimeType: string, byteSize: number, expiresSec = 300) {

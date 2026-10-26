@@ -4,8 +4,9 @@ import { username } from "better-auth/plugins/username";
 import { nextCookies } from "better-auth/next-js";
 import { APIError } from "better-auth/api";
 import { getPrisma } from "@/lib/db/prisma";
+import { env } from "@/lib/env";
 
-const googleConfigured = !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET;
+const googleConfigured = !!env("GOOGLE_CLIENT_ID") && !!env("GOOGLE_CLIENT_SECRET");
 
 /**
  * URL pública do app. Ordem: BETTER_AUTH_URL explícita > domínio de produção da Vercel > localhost.
@@ -13,17 +14,17 @@ const googleConfigured = !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_
  */
 const withHttps = (host?: string) => (host ? `https://${host}` : undefined);
 const baseURL =
-  process.env.BETTER_AUTH_URL ||
-  (process.env.VERCEL_ENV === "production" ? withHttps(process.env.VERCEL_PROJECT_PRODUCTION_URL) : withHttps(process.env.VERCEL_URL)) ||
+  env("BETTER_AUTH_URL") ||
+  (env("VERCEL_ENV") === "production" ? withHttps(env("VERCEL_PROJECT_PRODUCTION_URL")) : withHttps(env("VERCEL_URL"))) ||
   "http://localhost:3000";
 
 /** Origens aceitas (CSRF/redirect): app configurado + deploy atual da Vercel + localhost só fora de produção. */
 const trustedOrigins = [
   baseURL,
-  process.env.NEXT_PUBLIC_APP_URL,
-  withHttps(process.env.VERCEL_PROJECT_PRODUCTION_URL),
-  withHttps(process.env.VERCEL_URL),
-  ...(process.env.VERCEL_ENV === "production" ? [] : ["http://localhost:3000"]),
+  env("NEXT_PUBLIC_APP_URL"),
+  withHttps(env("VERCEL_PROJECT_PRODUCTION_URL")),
+  withHttps(env("VERCEL_URL")),
+  ...(env("VERCEL_ENV") === "production" ? [] : ["http://localhost:3000"]),
 ].filter((o, i, all): o is string => !!o && all.indexOf(o) === i);
 
 export function isGoogleConfigured() {
@@ -38,7 +39,7 @@ export function isGoogleConfigured() {
 export const auth = betterAuth({
   appName: "Champz",
   baseURL,
-  secret: process.env.BETTER_AUTH_SECRET,
+  secret: env("BETTER_AUTH_SECRET"),
   database: prismaAdapter(getPrisma(), { provider: "postgresql" }),
   // Endpoints nativos desligados: cadastro, troca/recuperação por e-mail (sem provedor) e autoexclusão.
   disabledPaths: ["/sign-up/email", "/change-email", "/delete-user", "/request-password-reset", "/reset-password", "/set-password"],
@@ -52,8 +53,8 @@ export const auth = betterAuth({
   socialProviders: googleConfigured
     ? {
         google: {
-          clientId: process.env.GOOGLE_CLIENT_ID!,
-          clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+          clientId: env("GOOGLE_CLIENT_ID")!,
+          clientSecret: env("GOOGLE_CLIENT_SECRET")!,
           prompt: "select_account",
           disableSignUp: true,
           disableImplicitSignUp: true,
