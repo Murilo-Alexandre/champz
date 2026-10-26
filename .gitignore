@@ -42,3 +42,7 @@ next-env.d.ts
 .pglite/
 /src/generated/
 !.env.example
+
+# credenciais OAuth baixadas do Google Cloud
+client_secret*.json
+*credentials*.json

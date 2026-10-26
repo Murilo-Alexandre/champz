@@ -15,7 +15,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "superadmin:bootstrap": "tsx scripts/bootstrap-superadmin.ts"
+    "superadmin:bootstrap": "tsx scripts/bootstrap-superadmin.ts",
+    "superadmin:reset-password": "tsx scripts/reset-superadmin-password.ts"
   },
   "repository": {
     "type": "git",
