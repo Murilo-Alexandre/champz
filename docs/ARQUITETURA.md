@@ -87,6 +87,17 @@ Indexes: tournamentId em quase todas as tabelas; unique onde necessário, unique
 - Armazenamento de provas e fotos em **bucket privado**. URL temporária assinada após autenticação e checagem de vínculo. Download individual autorizado; ZIP client-side em lotes (limite e progresso). Upload presigned diretamente de browser para storage, restrição MIME/tamanho, conferência de objeto antes de aceitar metadados; imagens redimensionadas e sem dados EXIF privados quando possível.
 - Restringir service worker a arquivos estáticos seguros; não cachear URLs assinadas nem fotos privadas em caches persistentes da PWA.
 
+## Autenticação restrita e administração do sistema (decisão de 26/10/2026)
+
+- **Sem cadastro público.** Contas são criadas por ADMIN/SUPERADMIN (`POST /api/admin/users`) com senha temporária devolvida uma única vez e `mustChangePassword=true`. Endpoints nativos desligados: `/sign-up/email`, `/change-email`, `/delete-user`, `/request-password-reset`, `/reset-password`, `/set-password`; e um hook impede qualquer criação de usuário pelo Better Auth (inclusive OAuth).
+- **Login:** usuário/e-mail + senha. **Google** nunca cria conta (`disableSignUp`) nem entra em conta não vinculada (`disableImplicitLinking`); vínculo só pelo usuário logado via `/api/auth/link-social` (OAuth validado; e-mail do Google pode diferir). Desvincular: o próprio usuário em `/api/auth/unlink-account` (Better Auth impede remover o último método) ou ADMIN em `/api/admin/users/:id/unlink-google` (exige senha ativa).
+- **Troca obrigatória:** com senha temporária, as APIs respondem `403 PASSWORD_CHANGE_REQUIRED` (exceto `GET /api/me`) até `/api/auth/change-password`.
+- **Papéis globais** (`User.role`), independentes das permissões por campeonato: `SUPERADMIN` (único; índice parcial no banco; identificado pelo ID gravado em `SystemSetting.superadminUserId`, imutável por trigger), `ADMIN` (gerencia somente USER), `USER`.
+- **Proteções:** ninguém altera/bloqueia/reseta/desvincula/revoga sessões/rebaixa o Superadmin pelas APIs administrativas; ninguém atua sobre si mesmo por elas (usa o perfil); só o Superadmin promove/rebaixa ADMIN e cria ADMIN; `SUPERADMIN` nunca é atribuível por API; não existe impersonação. Campos `role`, `banned`, `mustChangePassword` não são aceitos pelos endpoints nativos.
+- **Sessões:** reset de senha, troca de e-mail pelo admin, bloqueio, desvinculação do Google e mudança de papel revogam todas as sessões do alvo. Conta bloqueada não cria sessão.
+- **Auditoria:** ações administrativas gravadas em `AuditEvent` (`tournamentId` nulo, `targetType=USER`), append-only por trigger; senhas nunca são registradas. Leitura em `GET /api/admin/audit`.
+- **Bootstrap:** `npm run superadmin:bootstrap` (idempotente) lê `SUPERADMIN_EMAIL`/`SUPERADMIN_PASSWORD` do ambiente do terminal; nunca imprime nem grava a senha.
+
 ## Variáveis sugeridas — nomes podem variar conforme SDK
 
 ```dotenv

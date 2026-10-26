@@ -1,6 +1,6 @@
 # Champz — Status de execução
 
-Última atualização: **26/10/2026** — backend implementado e testado localmente (Postgres local via PGlite). **Neon, Google OAuth e Object Storage reais ainda não configurados/testados.** Nada commitado.
+Última atualização: **26/10/2026** — backend + autenticação restrita/administração implementados e testados localmente (Postgres local via PGlite). **Neon, Google OAuth e Object Storage reais ainda não configurados/testados.** Nada commitado.
 
 ## Backend (26/10)
 
@@ -73,6 +73,24 @@ npm run dev
 4. `BETTER_AUTH_SECRET` forte em produção.
 5. Recuperação de senha por e-mail: **pendente** (sem provedor de e-mail configurado; nenhum envio simulado).
 6. Placar real Felipe x Alan: **não confirmado**; nos testes usado como fixture hipotética 1x0.
+
+## Preparação para produção (26/10/2026)
+
+- Infra informada pelo proprietário: GitHub `Murilo-Alexandre/champz`, Vercel `champz` (https://champz-six.vercel.app), Neon `champz-db` (Free) conectado à Vercel com `DATABASE_URL` e `DATABASE_URL_UNPOOLED` em Production.
+- Migrações: `DIRECT_URL` > `DATABASE_URL_UNPOOLED` > `DATABASE_URL`. Build da Vercel roda `prisma generate && next build` (não migra). Validado localmente: generate sem variáveis, typecheck, lint, 45/45 testes e build **passaram**.
+- Better Auth: URL base por `BETTER_AUTH_URL` ou domínio de produção da Vercel; localhost aceito fora de produção; cookies Secure em HTTPS.
+- Migração no Neon real, deploy e login em produção: **NÃO EXECUTADOS**.
+
+## Autenticação restrita e administração (26/10/2026)
+
+- ✅ Cadastro público bloqueado (endpoint desligado + hook). Contas criadas por administração com senha temporária e troca obrigatória.
+- ✅ Google: não cria conta, não entra sem vínculo (mesmo com e-mail igual), vínculo pelo perfil logado, login após vínculo, desvinculação preservando acesso. **Testado com o fluxo OAuth real do Better Auth e token do Google simulado**; com credenciais reais do Google: **NÃO EXECUTADO**.
+- ✅ Papéis SUPERADMIN/ADMIN/USER; Superadmin único e protegido; APIs `/api/admin/*` (listar/pesquisar/criar/editar, reset de senha, desvincular Google, bloquear/desbloquear, revogar sessões, promover/rebaixar, log).
+- ✅ Bootstrap idempotente do Superadmin (`npm run superadmin:bootstrap`), testado no banco local 3x (criou 1, depois "já existe").
+- Migração nova: `20261026120000_system_roles` (aplicada só no banco local). Neon: **NÃO EXECUTADO**.
+- Pendências: troca do próprio e-mail e recuperação de senha por e-mail dependem de provedor de e-mail; tela administrativa fica para o frontend.
+
+Evidências: `npm run typecheck` passou; `npm run lint` passou (0 problemas); `npm test` **56/56** (45 anteriores + 11 de auth/admin); `npm run build` passou (43 rotas de API).
 
 ## Próximo passo único
 

@@ -18,12 +18,12 @@ type Mods = {
 let M: Mods;
 let stopDb: () => Promise<void>;
 
+/** Cadastro público está desativado: conta criada pelo caminho administrativo e login por username. */
 async function signUp(username: string, name: string) {
-  const res = await M.auth.api.signUpEmail({
-    body: { email: `${username}@champz.test`, password: "senha-forte-123", name, username },
-    returnHeaders: true,
-  });
-  return { id: res.response.user.id, cookie: cookieFrom(res.headers) };
+  const { provisionUserWithPassword } = await import("@/server/services/admin");
+  const user = await provisionUserWithPassword(M.prisma, { email: `${username}@champz.test`, password: "senha-forte-123", name, username });
+  const res = await M.auth.api.signInUsername({ body: { username, password: "senha-forte-123" }, returnHeaders: true });
+  return { id: user.id, cookie: cookieFrom(res.headers) };
 }
 
 beforeAll(async () => {
@@ -79,7 +79,7 @@ describe("FIFA 2026 — homologação ponta a ponta (12 participantes, 3x4, quar
     return M.m.recordResult(M.prisma, actor, match.id, { homeScore: aHome ? ga : gb, awayScore: aHome ? gb : ga, ...extra });
   };
 
-  it("cadastro por usuário/senha e login por username", async () => {
+  it("conta criada pela administração e login por username", async () => {
     owner = await signUp("murilo", "Murilo");
     everson = await signUp("everson", "Everson");
     outsider = await signUp("intruso", "Intruso");

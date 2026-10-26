@@ -4,6 +4,7 @@ import { defineConfig } from "prisma/config";
 config({ path: [".env.local", ".env"], quiet: true });
 
 // Migrações usam a conexão direta (sem pooler) do Neon; o runtime usa DATABASE_URL (pooled).
+// DIRECT_URL (manual) > DATABASE_URL_UNPOOLED (integração Neon/Vercel) > DATABASE_URL (local/PGlite).
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
@@ -11,6 +12,6 @@ export default defineConfig({
     seed: "tsx prisma/seed.ts",
   },
   datasource: {
-    url: process.env.DIRECT_URL ?? process.env.DATABASE_URL ?? "",
+    url: process.env.DIRECT_URL || process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL || "",
   },
 });

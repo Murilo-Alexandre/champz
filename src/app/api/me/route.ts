@@ -2,17 +2,33 @@ import { authed, body } from "@/server/http";
 import { usernameSchema } from "@/server/validators";
 import { conflict } from "@/server/errors";
 import { isGoogleConfigured } from "@/server/auth/auth";
+import { getSuperadminId } from "@/server/services/admin";
 
-export const GET = authed(async ({ db, userId }) => {
-  const user = await db.user.findUniqueOrThrow({
-    where: { id: userId },
-    select: { id: true, name: true, email: true, username: true, displayUsername: true, image: true, avatarMediaId: true, createdAt: true, accounts: { select: { providerId: true } } },
-  });
-  const { accounts, ...rest } = user;
-  return { user: rest, providers: accounts.map((a) => a.providerId), needsUsername: !user.username, googleEnabled: isGoogleConfigured() };
-});
+/** Perfil próprio. Responde mesmo com troca de senha pendente, para o app conduzir a troca. */
+export const GET = authed(
+  async ({ db, userId }) => {
+    const user = await db.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: {
+        id: true, name: true, email: true, username: true, displayUsername: true, image: true, avatarMediaId: true, role: true,
+        mustChangePassword: true, createdAt: true, accounts: { select: { providerId: true } },
+      },
+    });
+    const { accounts, ...rest } = user;
+    return {
+      user: rest,
+      isSuperadmin: (await getSuperadminId(db)) === userId,
+      providers: accounts.map((a) => a.providerId),
+      mustChangePassword: user.mustChangePassword,
+      needsUsername: !user.username,
+      googleEnabled: isGoogleConfigured(),
+    };
+  },
+  200,
+  { allowPendingPassword: true },
+);
 
-/** Quem entrou pelo Google escolhe o nome de usuário aqui. */
+/** Escolha/troca do próprio nome de usuário. */
 export const PATCH = authed(async ({ req, db, userId }) => {
   const { username } = await body(req, usernameSchema);
   const normalized = username.toLowerCase();

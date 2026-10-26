@@ -28,14 +28,15 @@ async function main() {
     console.log("SEED_DEMO_PASSWORD não definido: campeonato de teste não criado.");
     return;
   }
-  const { auth } = await import("../src/server/auth/auth");
+  const { provisionUserWithPassword } = await import("../src/server/services/admin");
   const t = await import("../src/server/services/tournaments");
   const s = await import("../src/server/services/stages");
 
   let demo = await db.user.findUnique({ where: { username: "demo" } });
   if (!demo) {
-    await auth.api.signUpEmail({ body: { email: "demo@champz.local", password, name: "Demo", username: "demo" } });
-    demo = await db.user.findUniqueOrThrow({ where: { username: "demo" } });
+    // Cadastro público está desativado: conta local de teste criada diretamente (nunca usar em produção).
+    const created = await provisionUserWithPassword(db, { email: "demo@champz.local", password, name: "Demo", username: "demo" });
+    demo = await db.user.findUniqueOrThrow({ where: { id: created.id } });
   }
   const name = "[TESTE] FIFA 2026 — homologação";
   if (await db.tournament.findFirst({ where: { name, ownerId: demo.id } })) {

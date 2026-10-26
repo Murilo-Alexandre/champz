@@ -24,5 +24,6 @@
 - Código e nomes técnicos em inglês; interface, mensagens e documentação de produto em português brasileiro.
 - Para FIFA, preferir lógica explícita e testável a um interpretador genérico de regras/esportes. Dados com `sport` para expansão futura, mas implementar só futebol eletrônico agora.
 - Não adicionar Redux, microserviços, filas, WebSocket, GraphQL, Docker obrigatório ou design system externo grande sem necessidade demonstrável.
+- Auth restrita: sem cadastro público; Google só para contas já vinculadas; papéis globais SUPERADMIN (único, protegido) / ADMIN / USER, separados das permissões de campeonato. Regras em `docs/ARQUITETURA.md`.
 - GSAP, ScrollTrigger, ScrollSmoother, ECharts obrigatórios na UX, mas sem prejudicar acessibilidade/performance mobile.
 - Não exibir telas fake como concluídas; usar dados de banco real ou indicar claramente se são seeds de teste.

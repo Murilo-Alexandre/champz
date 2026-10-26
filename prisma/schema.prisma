@@ -20,6 +20,13 @@ model User {
   username        String?   @unique
   displayUsername String?
   avatarMediaId   String?
+  /// Papel global (sistema), independente das permissões por campeonato.
+  role               GlobalRole @default(USER)
+  banned             Boolean    @default(false)
+  banReason          String?
+  bannedAt           DateTime?
+  mustChangePassword Boolean    @default(false)
+  createdById        String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   sessions        Session[]
@@ -79,6 +86,19 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+enum GlobalRole {
+  SUPERADMIN
+  ADMIN
+  USER
+}
+
+/// Configurações do sistema (ex.: superadminUserId — identidade persistente do Superadmin).
+model SystemSetting {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
 }
 
 model RateLimit {

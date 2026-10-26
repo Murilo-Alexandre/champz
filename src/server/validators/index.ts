@@ -147,3 +147,17 @@ export const uploadRequestSchema = z.object({
 });
 
 export const usernameSchema = z.object({ username: z.string().trim().min(3).max(24).regex(/^[a-zA-Z0-9_.]+$/) });
+
+// ───────────── Administração do sistema ─────────────
+const usernameField = z.string().trim().min(3).max(24).regex(/^[a-zA-Z0-9_.]+$/);
+export const adminCreateUserSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  email: z.email().max(200),
+  username: usernameField,
+  role: z.enum(["ADMIN", "USER"]).default("USER"),
+});
+export const adminUpdateUserSchema = z
+  .object({ name: z.string().trim().min(2).max(80).optional(), email: z.email().max(200).optional(), username: usernameField.optional() })
+  .refine((v) => v.name || v.email || v.username, "Nada para alterar");
+export const adminBanSchema = z.object({ reason: z.string().trim().min(3).max(300) });
+export const adminRoleSchema = z.object({ role: z.enum(["ADMIN", "USER"]) });
