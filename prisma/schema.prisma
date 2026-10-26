@@ -1,0 +1,503 @@
+// Champz — schema principal. Tabelas User/Session/Account/Verification/RateLimit seguem o Better Auth.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Better Auth ─────────────────────────────
+
+model User {
+  id              String    @id
+  name            String
+  email           String    @unique
+  emailVerified   Boolean   @default(false)
+  image           String?
+  username        String?   @unique
+  displayUsername String?
+  avatarMediaId   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  sessions        Session[]
+  accounts        Account[]
+
+  memberships   TournamentMember[]
+  entryPlayers  EntryPlayer[]
+  ownedTourneys Tournament[]       @relation("TournamentOwner")
+  auditEvents   AuditEvent[]
+  media         Media[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model RateLimit {
+  id          String @id
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+
+  @@map("rateLimit")
+}
+
+// ───────────────────────────── Domínio ─────────────────────────────
+
+enum TournamentFormat {
+  LEAGUE
+  GROUPS_ONLY
+  KNOCKOUT
+  GROUPS_KNOCKOUT
+}
+
+enum TournamentStatus {
+  DRAFT
+  OPEN
+  ACTIVE
+  FINISHED
+  CANCELLED
+}
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  PARTICIPANT
+  VIEWER
+}
+
+enum EntryType {
+  SOLO
+  DUO
+}
+
+enum StageType {
+  LEAGUE
+  GROUP
+  KNOCKOUT
+}
+
+enum StageStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum MatchStatus {
+  SCHEDULED
+  READY
+  COMPLETED
+  WALKOVER
+  CANCELLED
+  BYE
+}
+
+enum Side {
+  HOME
+  AWAY
+}
+
+enum ClubAssignmentMode {
+  RANDOM
+  PLAYER_CHOICE
+  MANUAL
+}
+
+enum MediaKind {
+  PHOTO
+  PROOF
+  AVATAR
+  CREST
+}
+
+enum MediaStatus {
+  PENDING
+  READY
+  HIDDEN
+}
+
+model Tournament {
+  id               String           @id @default(cuid())
+  ownerId          String
+  owner            User             @relation("TournamentOwner", fields: [ownerId], references: [id])
+  name             String
+  sportCode        String           @default("FIFA")
+  edition          String?
+  description      String?
+  coverMediaId     String?
+  format           TournamentFormat
+  entryType        EntryType        @default(SOLO)
+  status           TournamentStatus @default(DRAFT)
+  visibility       Visibility       @default(PRIVATE)
+  settings         Json
+  settingsVersion  Int              @default(1)
+  championEntryId  String?
+  startsAt         DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  members           TournamentMember[]
+  entries           Entry[]
+  stages            Stage[]
+  auditEvents       AuditEvent[]
+  media             Media[]
+  draws             Draw[]
+  settingsRevisions TournamentSettingsRevision[]
+  invites           TournamentInvite[]
+
+  @@index([ownerId])
+  @@index([visibility, status])
+}
+
+model TournamentSettingsRevision {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  version      Int
+  settings     Json
+  actorUserId  String
+  reason       String?
+  createdAt    DateTime   @default(now())
+
+  @@unique([tournamentId, version])
+}
+
+model TournamentMember {
+  id               String     @id @default(cuid())
+  tournamentId     String
+  tournament       Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role             MemberRole
+  canEditResult    Boolean    @default(true)
+  canEditClubs     Boolean    @default(false)
+  canDraw          Boolean    @default(false)
+  canEditRules     Boolean    @default(false)
+  canUploadMedia   Boolean    @default(true)
+  canManageMembers Boolean    @default(false)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@unique([tournamentId, userId])
+  @@index([userId])
+}
+
+model TournamentInvite {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  token        String     @unique
+  role         MemberRole @default(PARTICIPANT)
+  expiresAt    DateTime?
+  maxUses      Int?
+  uses         Int        @default(0)
+  createdById  String
+  revokedAt    DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@index([tournamentId])
+}
+
+/// Unidade competitiva: 1 jogador (SOLO) ou dupla (DUO).
+model Entry {
+  id           String        @id @default(cuid())
+  tournamentId String
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  name         String
+  type         EntryType
+  active       Boolean       @default(true)
+  withdrawnAt  DateTime?
+  withdrawNote String?
+  seed         Int?
+  createdAt    DateTime      @default(now())
+  players      EntryPlayer[]
+  groupEntries GroupEntry[]
+  homeMatches  Match[]       @relation("HomeEntry")
+  awayMatches  Match[]       @relation("AwayEntry")
+  adjustments  StandingAdjustment[]
+
+  @@index([tournamentId])
+}
+
+/// Jogador de uma entrada. userId pode ser nulo para convidado ainda sem conta (guestName).
+model EntryPlayer {
+  id           String  @id @default(cuid())
+  entryId      String
+  entry        Entry   @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  tournamentId String
+  userId       String?
+  user         User?   @relation(fields: [userId], references: [id])
+  guestName    String?
+
+  @@unique([tournamentId, userId])
+  @@index([entryId])
+}
+
+model Club {
+  id           String   @id @default(cuid())
+  name         String
+  shortName    String?
+  country      String?
+  stars        Float?
+  crestMediaId String?
+  active       Boolean  @default(true)
+  createdById  String?
+  createdAt    DateTime @default(now())
+  stageClubs   StageClub[]
+  matchClubs   MatchClub[]
+
+  @@unique([name])
+}
+
+model Stage {
+  id                 String             @id @default(cuid())
+  tournamentId       String
+  tournament         Tournament         @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  order              Int
+  type               StageType
+  name               String
+  status             StageStatus        @default(ACTIVE)
+  legs               Int                @default(1)
+  clubAssignmentMode ClubAssignmentMode @default(MANUAL)
+  allowClubRepeat    Boolean            @default(true)
+  rulesSnapshot      Json
+  sourceStageId      String?            @unique
+  drawId             String?
+  createdAt          DateTime           @default(now())
+  closedAt           DateTime?
+  groups             Group[]
+  rounds             Round[]
+  matches            Match[]
+  allowedClubs       StageClub[]
+  adjustments        StandingAdjustment[]
+
+  @@unique([tournamentId, order])
+}
+
+model StageClub {
+  stageId String
+  stage   Stage  @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  clubId  String
+  club    Club   @relation(fields: [clubId], references: [id])
+
+  @@id([stageId, clubId])
+}
+
+model Group {
+  id          String       @id @default(cuid())
+  stageId     String
+  stage       Stage        @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  label       String
+  order       Int
+  /// Ordem manual de desempate (entryIds) definida por admin quando critérios não resolvem.
+  manualOrder Json?
+  closedAt    DateTime?
+  entries     GroupEntry[]
+  matches     Match[]
+
+  @@unique([stageId, label])
+}
+
+model GroupEntry {
+  groupId  String
+  group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  entryId  String
+  entry    Entry  @relation(fields: [entryId], references: [id])
+  position Int
+
+  @@id([groupId, entryId])
+}
+
+model Round {
+  id      String  @id @default(cuid())
+  stageId String
+  stage   Stage   @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  number  Int
+  name    String
+  matches Match[]
+
+  @@unique([stageId, number])
+}
+
+model Match {
+  id                 String      @id @default(cuid())
+  tournamentId       String
+  stageId            String
+  stage              Stage       @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  roundId            String
+  round              Round       @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  groupId            String?
+  group              Group?      @relation(fields: [groupId], references: [id])
+  homeEntryId        String?
+  homeEntry          Entry?      @relation("HomeEntry", fields: [homeEntryId], references: [id])
+  awayEntryId        String?
+  awayEntry          Entry?      @relation("AwayEntry", fields: [awayEntryId], references: [id])
+  status             MatchStatus @default(SCHEDULED)
+  homeScore          Int?
+  awayScore          Int?
+  homePenalties      Int?
+  awayPenalties      Int?
+  walkoverAbsent     Side?
+  walkoverBoth       Boolean     @default(false)
+  adminDecision      String?
+  winnerEntryId      String?
+  bracketPosition    Int?
+  nextMatchId        String?
+  nextMatchSide      Side?
+  bracketHalf        String?
+  scheduledAt        DateTime?
+  completedAt        DateTime?
+  updatedById        String?
+  version            Int         @default(0)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  clubs              MatchClub[]
+  media              Media[]
+
+  @@index([tournamentId])
+  @@index([stageId, roundId])
+}
+
+model MatchClub {
+  matchId String
+  match   Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  side    Side
+  clubId  String
+  club    Club   @relation(fields: [clubId], references: [id])
+  source  ClubAssignmentMode
+  setById String
+
+  @@id([matchId, side])
+}
+
+/// Ajustes de pontos (bônus/penalidade) separados dos pontos básicos.
+model StandingAdjustment {
+  id          String   @id @default(cuid())
+  stageId     String
+  stage       Stage    @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  groupId     String?
+  entryId     String
+  entry       Entry    @relation(fields: [entryId], references: [id])
+  rule        String
+  pointsDelta Int
+  reason      String
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@unique([stageId, groupId, entryId, rule])
+}
+
+model Draw {
+  id           String     @id @default(cuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  kind         String
+  seed         String
+  input        Json
+  result       Json
+  createdById  String
+  createdAt    DateTime   @default(now())
+
+  @@index([tournamentId])
+}
+
+/// Log append-only. UPDATE/DELETE bloqueados por trigger na migração.
+model AuditEvent {
+  id           String      @id @default(cuid())
+  tournamentId String?
+  tournament   Tournament? @relation(fields: [tournamentId], references: [id], onDelete: Restrict)
+  actorUserId  String
+  actor        User        @relation(fields: [actorUserId], references: [id])
+  targetType   String
+  targetId     String
+  action       String
+  before       Json?
+  after        Json?
+  reason       String?
+  mediaIds     String[]    @default([])
+  createdAt    DateTime    @default(now())
+
+  @@index([tournamentId, createdAt])
+  @@index([targetType, targetId])
+}
+
+model Media {
+  id           String      @id @default(cuid())
+  ownerUserId  String
+  owner        User        @relation(fields: [ownerUserId], references: [id])
+  tournamentId String?
+  tournament   Tournament? @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  stageId      String?
+  roundId      String?
+  matchId      String?
+  match        Match?      @relation(fields: [matchId], references: [id])
+  kind         MediaKind
+  status       MediaStatus @default(PENDING)
+  objectKey    String      @unique
+  thumbKey     String?
+  mimeType     String
+  byteSize     Int
+  width        Int?
+  height       Int?
+  caption      String?
+  takenAt      DateTime?
+  createdAt    DateTime    @default(now())
+  confirmedAt  DateTime?
+  hiddenReason String?
+
+  @@index([tournamentId, status, createdAt])
+  @@index([matchId])
+}
