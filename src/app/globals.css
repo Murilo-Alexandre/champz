@@ -1,26 +1,89 @@
 @import "tailwindcss";
 
+/* Champz — "noite de estádio": base escura, verde-gramado elétrico, ciano de placar e ouro de taça. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #07090f;
+  --bg-2: #0b0f18;
+  --surface: #111725;
+  --surface-2: #171f31;
+  --line: #222c42;
+  --text: #eef2fb;
+  --muted: #8d98b3;
+  --lime: #c6ff3d;
+  --lime-ink: #0b1400;
+  --cyan: #35e0ff;
+  --gold: #ffc94a;
+  --danger: #ff4d6d;
+  --radius: 18px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --nav-h: 64px;
+  color-scheme: dark;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--bg);
+  --color-bg-2: var(--bg-2);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-lime: var(--lime);
+  --color-lime-ink: var(--lime-ink);
+  --color-cyan: var(--cyan);
+  --color-gold: var(--gold);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html { background: var(--bg); -webkit-tap-highlight-color: transparent; }
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(53, 224, 255, 0.08), transparent 60%),
+    radial-gradient(900px 500px at -10% 10%, rgba(198, 255, 61, 0.07), transparent 55%),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--font-body), system-ui, sans-serif;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+.font-display { font-family: var(--font-display), var(--font-body), sans-serif; letter-spacing: 0.01em; }
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Superfícies */
+.card { background: linear-gradient(180deg, var(--surface), var(--bg-2)); border: 1px solid var(--line); border-radius: var(--radius); }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--muted); background: var(--bg-2); }
+
+/* Botões: alvo de toque >= 44px */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px; border-radius: 14px; font-weight: 700; font-size: 15px; transition: transform .15s ease, background .2s ease, opacity .2s; user-select: none; }
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: .45; pointer-events: none; }
+.btn-primary { background: var(--lime); color: var(--lime-ink); box-shadow: 0 8px 30px -10px rgba(198, 255, 61, .6); }
+.btn-ghost { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
+.btn-danger { background: rgba(255, 77, 109, .12); color: var(--danger); border: 1px solid rgba(255, 77, 109, .35); }
+.btn-sm { min-height: 44px; padding: 0 14px; font-size: 14px; border-radius: 12px; }
+
+.input { width: 100%; min-height: 50px; border-radius: 14px; background: var(--bg-2); border: 1px solid var(--line); padding: 0 14px; font-size: 16px; color: var(--text); outline: none; transition: border-color .2s, box-shadow .2s; }
+.input:focus { border-color: var(--lime); box-shadow: 0 0 0 3px rgba(198, 255, 61, .15); }
+textarea.input { padding: 12px 14px; min-height: 90px; }
+.label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* Estado de carregamento */
+.skeleton { background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%); background-size: 200% 100%; animation: shimmer 1.3s infinite linear; border-radius: 12px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.glow-lime { box-shadow: 0 0 0 1px rgba(198,255,61,.35), 0 10px 40px -12px rgba(198,255,61,.45); }
+
+.pb-nav { padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 24px); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }

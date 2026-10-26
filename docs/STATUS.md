@@ -11,10 +11,10 @@
 
 ## Frontend (27/10)
 
-- [ ] F1 fluxo completo das telas mobile-first
-- [ ] F2 GSAP/ScrollTrigger/ScrollSmoother/ECharts
-- [ ] F3 galeria, câmera, ZIP, slideshow/campeão
-- [ ] F4 PWA Android/iPhone, build e deploy preparado
+- [x] F1 telas mobile-first ligadas às APIs reais (landing, login, home, assistente de criação, campeonato, perfil, admin, convite)
+- [x] F2 GSAP (`useGSAP`), ScrollTrigger, ScrollSmoother (só ponteiro fino, `smoothTouch: 0`), ECharts sob demanda
+- [~] F3 galeria/câmera/ZIP/retrospectiva/campeão implementados; **upload real não testado** (Object Storage com 403)
+- [~] F4 PWA (manifest, ícones 192/512/maskable, service worker mínimo, botão Instalar + tutorial iOS); **sem teste em Android/iPhone reais**; deploy não feito
 
 ## Evidências de execução (26/10/2026)
 
@@ -92,6 +92,41 @@ npm run dev
 
 Evidências: `npm run typecheck` passou; `npm run lint` passou (0 problemas); `npm test` **56/56** (45 anteriores + 11 de auth/admin); `npm run build` passou (43 rotas de API).
 
+## Integrações reais (26/10/2026)
+
+| Item | Resultado |
+|---|---|
+| Conexão direta Neon (sem pooler) — `neondb`/`neondb_owner`, PG 18.6, banco vazio antes | passou |
+| Conexão pooled Neon | passou |
+| `prisma migrate deploy` no Neon (`init` + `system_roles`, 25 tabelas, sem reset/seed) | passou |
+| App (`next start` local) usando o Neon pooled: leitura OK, cadastro público 404, anônimo 401 em `/api/me` e `/api/admin/users` | passou |
+| Superadmin no Neon — `murilo.alexandre`, SUPERADMIN, ID persistente; senha ajustável via `npm run superadmin:reset-password` (mesmo ID, revoga sessões, audita) | passou |
+| E2E HTTP real (servidor local → Neon): login usuário/senha, sessão SUPERADMIN, `/api/me`, admin 200/401, cadastro público 404, logout invalida cookie, relogin, senha errada 401 | 10/10 passou |
+| Google OAuth real (Chrome do proprietário, localhost): vinculação ao Superadmin, logout, login Google na mesma conta; Neon com 1 usuário e contas `credential` + `google` no mesmo ID | passou |
+| Variáveis Vercel Production (CLI autenticada): DATABASE_URL(_UNPOOLED), BETTER_AUTH_SECRET/URL, NEXT_PUBLIC_APP_URL, GOOGLE_CLIENT_ID/SECRET presentes (valores sensíveis, não legíveis) | conferido (nomes) |
+| Neon Object Storage (bucket, CORS, upload real) | **pendente** — 403 `SignatureDoesNotMatch` (retestado); uploads respondem 503 até corrigir a credencial no Console e cadastrar `S3_*` na Vercel |
+| Testes automatizados / typecheck / lint | 56/56, OK, OK |
+
+Banco de produção: 1 usuário (Superadmin), 0 campeonatos, nenhum seed. Deploy na Vercel ainda não executado (aguarda autorização).
+
+## Frontend — validado em 26/10/2026 (noite)
+
+Telas: `/` (landing), `/entrar`, `/app` (meus/públicos), `/app/novo` (assistente em 6 passos com rascunho local), `/app/t/[id]` (Jogos, Tabela, Chave, Números, Fotos, Histórico, Gestão), `/app/t/[id]/retrospectiva`, `/app/perfil`, `/app/admin`, `/convite/[token]`.
+Componentes: `ParticipantAvatar` (2v2 sobreposto), `ClubBadge`, `MatchCard`, `StandingTable`, `Bracket`, `DrawAnimation`, `AuditTimeline`, `PhotoGallery`, `WinnerCelebration`/`Confetti`, `InstallAppBanner`, `StatChart`.
+
+| Verificação | Resultado |
+|---|---|
+| `npm run typecheck`, `eslint .` | OK, 0 avisos |
+| `npm test` | 56/56 |
+| `npm run build` (produção) | OK; ícones PWA e manifest gerados |
+| Navegador 375px, banco local (PGlite, seed `[TESTE]`): login usuário/senha → home → campeonato → definir clube por lado → placar 3x1 → tabela recalculada pelo servidor | passou |
+| Assistente: criar mata-mata com 4 participantes → sorteio do chaveamento → sorteio de clubes com animação | passou |
+| Semi + semi nos pênaltis + final (via API com a sessão do navegador) → status FINISHED, campeão exibido, retrospectiva com números corretos | passou |
+| Rolagem horizontal em 360px: `/`, `/entrar`, `/app`, `/app/novo`, `/app/perfil`, `/app/t/[id]` | nenhuma |
+| Bugs corrigidos nos testes: folha do placar fechava ao definir clube; folha reanimava a cada render; `champion` da API sem `players` quebrava o avatar; ordem instável dos jogos na rodada | corrigidos |
+
+Não verificado: upload/galeria/ZIP com bucket real; instalação PWA em Android/iPhone físicos; 430px e desktop só em inspeção parcial; Google pelo botão da nova tela de login (o fluxo OAuth em si foi validado antes). Em dev, o Next mostra avisos de "instant navigation" porque a área logada aguarda `/api/me` no cliente (não afeta o build).
+
 ## Próximo passo único
 
-Executar `/champz-frontend` (27/10) consumindo estas APIs; em paralelo, o proprietário provisiona Neon/Google/bucket para validar integrações reais.
+Autorizar commit + deploy na Vercel; depois corrigir a credencial do Neon Object Storage (cadastrar `S3_*` na Vercel) e testar câmera/galeria e instalação PWA em aparelhos reais.
