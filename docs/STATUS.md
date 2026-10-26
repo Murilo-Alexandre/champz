@@ -127,6 +127,25 @@ Componentes: `ParticipantAvatar` (2v2 sobreposto), `ClubBadge`, `MatchCard`, `St
 
 Não verificado: upload/galeria/ZIP com bucket real; instalação PWA em Android/iPhone físicos; 430px e desktop só em inspeção parcial; Google pelo botão da nova tela de login (o fluxo OAuth em si foi validado antes). Em dev, o Next mostra avisos de "instant navigation" porque a área logada aguarda `/api/me` no cliente (não afeta o build).
 
+## Produção — publicado em 26/10/2026
+
+URL: https://champz-six.vercel.app (projeto Vercel `champz`, deploy automático de `main`, status Ready).
+
+| Teste em produção | Resultado |
+|---|---|
+| `/`, `/entrar`, `/app` | 200 |
+| Manifest, `/sw.js`, ícones 192/512/maskable (PNG) | 200; service worker registrado no navegador |
+| Login do Superadmin `murilo.alexandre` (Neon real) | 200; `/api/me` = SUPERADMIN, provedores senha + Google |
+| `/api/admin/users`, `/api/admin/audit` com sessão / sem sessão | 200 / 401 |
+| `/api/tournaments`, `/api/clubs` | 200 |
+| Cadastro público | 404 |
+| Logout invalida a sessão | 401 após sair |
+| Início do OAuth Google: `redirect_uri` = `https://champz-six.vercel.app/api/auth/callback/google` | OK (login com conta Google não testado por mim) |
+| Catálogo de clubes no Neon (seed só de clubes, sem campeonato de demonstração) | 24 clubes |
+| 375px: sem rolagem horizontal, sem erros no console | OK |
+
+Correção aplicada no deploy: `BETTER_AUTH_URL` na Vercel tinha um TAB inicial que corrompia o `redirect_uri` do Google; o código agora ignora espaços nas variáveis (`src/lib/env.ts`). Recomenda-se também limpar o valor no painel.
+
 ## Próximo passo único
 
-Autorizar commit + deploy na Vercel; depois corrigir a credencial do Neon Object Storage (cadastrar `S3_*` na Vercel) e testar câmera/galeria e instalação PWA em aparelhos reais.
+Corrigir a credencial do Neon Object Storage (403), cadastrar `S3_*` na Vercel e testar câmera/galeria/ZIP; até lá o envio de fotos mostra "temporariamente indisponível". Testar instalação PWA no Android e iPhone.

@@ -21,7 +21,9 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   if (!res.ok) {
     const err = (json as { error?: { code?: string; message?: string; details?: unknown }; message?: string; code?: string } | null) ?? null;
     const code = err?.error?.code ?? err?.code ?? `HTTP_${res.status}`;
-    const message = err?.error?.message ?? err?.message ?? friendlyStatus(res.status);
+    const message = code === "STORAGE_NOT_CONFIGURED"
+      ? "Envio de fotos temporariamente indisponível. O restante do Champz funciona normalmente."
+      : err?.error?.message ?? err?.message ?? friendlyStatus(res.status);
     throw new ApiError(res.status, code, message, err?.error?.details);
   }
   return json as T;
