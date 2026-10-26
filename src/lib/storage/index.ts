@@ -23,6 +23,9 @@ export class S3Storage implements StorageProvider {
       endpoint: env("S3_ENDPOINT"),
       region: env("S3_REGION") || "auto",
       forcePathStyle: true,
+      // Sem checksum CRC32 automático: o PUT direto do navegador via URL assinada não envia esse cabeçalho.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
       credentials: { accessKeyId: env("S3_ACCESS_KEY_ID")!, secretAccessKey: env("S3_SECRET_ACCESS_KEY")! },
     });
   }

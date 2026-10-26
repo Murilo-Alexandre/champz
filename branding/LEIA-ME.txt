@@ -1,0 +1,5 @@
+Imagem original Champz para integracao no app.
+Fonte: arquivo enviado pelo usuario.
+A outra imagem enviada e identica.
+A imagem tem transparencia.
+Copie a pasta branding para a raiz de C:\dev\champz e solicite ao Claude a geracao de favicons, PWA, apple-touch-icon, OG image e identidade visual.

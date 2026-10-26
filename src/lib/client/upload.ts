@@ -22,14 +22,18 @@ export async function uploadPhoto(file: File, target: UploadTarget, onProgress?:
   if (!file.type.startsWith("image/")) throw new Error("Escolha uma imagem");
   onProgress?.(0.05);
   const main = await encode(file, target.kind === "AVATAR" ? 768 : 2048, 0.85);
-  const thumb = await encode(file, 480, 0.75);
+  const thumbEnc = await encode(file, 480, 0.75);
+  // Miniatura nunca maior que a foto principal (e dentro do limite de 500 KB do servidor).
+  const thumbBlob = thumbEnc.blob.size <= main.blob.size ? thumbEnc.blob : main.blob;
+  const withThumb = thumbBlob.size <= 500_000;
   onProgress?.(0.2);
   const path = target.tournamentId ? `/api/tournaments/${target.tournamentId}/media` : "/api/media";
   const req = await api<UploadReq>(path, {
     body: {
       kind: target.kind, mimeType: "image/webp", byteSize: main.blob.size, width: main.width, height: main.height,
       matchId: target.matchId, stageId: target.stageId, caption: target.caption,
-      takenAt: file.lastModified ? new Date(file.lastModified).toISOString() : undefined, withThumbnail: true,
+      takenAt: file.lastModified ? new Date(file.lastModified).toISOString() : undefined,
+      withThumbnail: withThumb, thumbByteSize: withThumb ? thumbBlob.size : undefined,
     },
   });
   const put = async (url: string, blob: Blob) => {
@@ -38,7 +42,7 @@ export async function uploadPhoto(file: File, target: UploadTarget, onProgress?:
   };
   await put(req.uploadUrl, main.blob);
   onProgress?.(0.75);
-  if (req.thumbUploadUrl) await put(req.thumbUploadUrl, thumb.blob.size <= main.blob.size ? thumb.blob : main.blob);
+  if (req.thumbUploadUrl) await put(req.thumbUploadUrl, thumbBlob);
   onProgress?.(0.9);
   const media = await api<{ id: string }>(`/api/media/${req.media.id}/confirm`, { body: {} });
   onProgress?.(1);

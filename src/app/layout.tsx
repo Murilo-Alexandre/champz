@@ -10,8 +10,14 @@ export const metadata: Metadata = {
   title: { default: "Champz", template: "%s · Champz" },
   description: "Campeonatos de FIFA entre amigos: grupos, mata-mata, placares, estatísticas e retrospectiva.",
   applicationName: "Champz",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL?.trim() || "https://champz-six.vercel.app"),
   appleWebApp: { capable: true, title: "Champz", statusBarStyle: "black-translucent" },
-  icons: { icon: "/icons/192", apple: "/icons/180" },
+  icons: {
+    icon: [{ url: "/icons/favicon-32.png?v=2", sizes: "32x32", type: "image/png" }, { url: "/icons/icon-192.png?v=2", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/icons/apple-touch-icon.png?v=2", sizes: "180x180" }],
+  },
+  openGraph: { type: "website", siteName: "Champz", locale: "pt_BR", title: "Champz", description: "Campeonatos de FIFA entre amigos: grupos, mata-mata, placares, estatísticas e retrospectiva." },
+  twitter: { card: "summary_large_image", title: "Champz", description: "Campeonatos de FIFA entre amigos." },
 };
 
 export const viewport: Viewport = {

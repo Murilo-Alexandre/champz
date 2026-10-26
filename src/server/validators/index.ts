@@ -144,20 +144,33 @@ export const uploadRequestSchema = z.object({
   caption: z.string().trim().max(300).optional(),
   takenAt: z.coerce.date().optional(),
   withThumbnail: z.boolean().default(true),
+  /** Tamanho exato da miniatura (o PUT assinado confere o content-length). Sem ele, não há miniatura. */
+  thumbByteSize: z.number().int().min(1).max(500_000).optional(),
 });
 
 export const usernameSchema = z.object({ username: z.string().trim().min(3).max(24).regex(/^[a-zA-Z0-9_.]+$/) });
 
 // ───────────── Administração do sistema ─────────────
 const usernameField = z.string().trim().min(3).max(24).regex(/^[a-zA-Z0-9_.]+$/);
+const optionalEmail = z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.email().max(200).optional());
 export const adminCreateUserSchema = z.object({
   name: z.string().trim().min(2).max(80),
-  email: z.email().max(200),
+  /** Opcional: contas sem e-mail entram com usuário e senha. */
+  email: optionalEmail,
   username: usernameField,
+  /** Opcional: senha definida pelo admin; sem ela o sistema gera uma temporária. */
+  password: z.string().min(8).max(128).optional(),
+  /** Exigir troca de senha no primeiro acesso (padrão: sim). */
+  mustChangePassword: z.boolean().default(true),
   role: z.enum(["ADMIN", "USER"]).default("USER"),
 });
 export const adminUpdateUserSchema = z
-  .object({ name: z.string().trim().min(2).max(80).optional(), email: z.email().max(200).optional(), username: usernameField.optional() })
-  .refine((v) => v.name || v.email || v.username, "Nada para alterar");
+  .object({
+    name: z.string().trim().min(2).max(80).optional(),
+    /** null ou "" remove o e-mail cadastrado. */
+    email: z.union([z.literal(""), z.null(), z.email().max(200)]).optional(),
+    username: usernameField.optional(),
+  })
+  .refine((v) => v.name || v.email !== undefined || v.username, "Nada para alterar");
 export const adminBanSchema = z.object({ reason: z.string().trim().min(3).max(300) });
 export const adminRoleSchema = z.object({ role: z.enum(["ADMIN", "USER"]) });

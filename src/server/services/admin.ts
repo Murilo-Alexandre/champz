@@ -3,6 +3,7 @@ import type { Db, DbOrTx } from "@/lib/db/prisma";
 import type { GlobalRole } from "@/generated/prisma/client";
 import { audit } from "./audit";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
+import { internalEmailFor, isInternalEmail, publicEmail } from "@/lib/user-email";
 
 export const SUPERADMIN_SETTING = "superadminUserId";
 
@@ -66,13 +67,15 @@ function normalizeUsername(username: string) {
 /** Cria conta com senha (usada pelo bootstrap e pela administração). Não passa pelo cadastro público. */
 async function insertCredentialUser(
   db: DbOrTx,
-  input: { name: string; email: string; username: string; role: GlobalRole; passwordHash: string; mustChangePassword: boolean; createdById: string | null },
+  input: { name: string; email?: string | null; username: string; role: GlobalRole; passwordHash: string; mustChangePassword: boolean; createdById: string | null },
 ) {
   const username = normalizeUsername(input.username);
-  const email = input.email.trim().toLowerCase();
+  const id = randomUUID();
+  const realEmail = input.email?.trim().toLowerCase() || null;
+  if (realEmail && isInternalEmail(realEmail)) throw badRequest("INVALID_EMAIL", "E-mail inválido");
+  const email = realEmail ?? internalEmailFor(id);
   const clash = await db.user.findFirst({ where: { OR: [{ email }, { username }] }, select: { email: true } });
   if (clash) throw conflict(clash.email === email ? "EMAIL_TAKEN" : "USERNAME_TAKEN", clash.email === email ? "E-mail já cadastrado" : "Nome de usuário em uso");
-  const id = randomUUID();
   return db.user.create({
     data: {
       id, name: input.name.trim(), email, emailVerified: false, username, displayUsername: input.username.trim(),
@@ -142,7 +145,7 @@ export async function listUsers(db: Db, actorId: string, q: { search?: string; r
   ]);
   const superId = await getSuperadminId(db);
   return {
-    items: items.map(({ accounts, ...u }) => ({ ...u, providers: accounts.map((a) => a.providerId), isSuperadmin: u.id === superId })),
+    items: items.map(({ accounts, ...u }) => ({ ...u, email: publicEmail(u.email), providers: accounts.map((a) => a.providerId), isSuperadmin: u.id === superId })),
     total, page, pageSize,
   };
 }
@@ -151,33 +154,46 @@ export async function getUser(db: Db, actorId: string, userId: string) {
   await requireSystemRole(db, actorId, "ADMIN");
   const user = await db.user.findUnique({ where: { id: userId }, select: { ...publicUser, accounts: { select: { providerId: true, createdAt: true } }, _count: { select: { sessions: true } } } });
   if (!user) throw notFound("Usuário");
-  return { ...user, isSuperadmin: user.id === (await getSuperadminId(db)) };
+  return { ...user, email: publicEmail(user.email), isSuperadmin: user.id === (await getSuperadminId(db)) };
 }
 
 /** Cria conta com senha temporária (devolvida uma única vez) e troca obrigatória no primeiro acesso. */
-export async function createUser(db: Db, actorId: string, input: { name: string; email: string; username: string; role: "ADMIN" | "USER" }) {
+export async function createUser(
+  db: Db,
+  actorId: string,
+  input: { name: string; email?: string | null; username: string; role: "ADMIN" | "USER"; password?: string; mustChangePassword?: boolean },
+) {
   const actor = await requireSystemRole(db, actorId, "ADMIN");
   if (input.role === "ADMIN" && !actor.isSuperadmin) throw forbidden("Somente o Superadmin cria administradores");
-  const temporaryPassword = generateTemporaryPassword();
-  const passwordHash = await hashPassword(temporaryPassword);
+  // Senha definida pelo admin não é devolvida; a gerada é exibida uma única vez.
+  const temporaryPassword = input.password ? null : generateTemporaryPassword();
+  const passwordHash = await hashPassword(input.password ?? temporaryPassword!);
+  const mustChangePassword = temporaryPassword ? true : input.mustChangePassword ?? true;
   const user = await db.$transaction(async (tx) => {
-    const created = await insertCredentialUser(tx, { ...input, passwordHash, mustChangePassword: true, createdById: actorId });
-    await audit(tx, { tournamentId: null, actorUserId: actorId, targetType: "USER", targetId: created.id, action: "ADMIN_CREATE_USER", after: { name: created.name, email: created.email, username: created.username, role: created.role } });
+    const created = await insertCredentialUser(tx, { name: input.name, email: input.email, username: input.username, role: input.role, passwordHash, mustChangePassword, createdById: actorId });
+    await audit(tx, {
+      tournamentId: null, actorUserId: actorId, targetType: "USER", targetId: created.id, action: "ADMIN_CREATE_USER",
+      after: { name: created.name, email: publicEmail(created.email), username: created.username, role: created.role, credentialSource: temporaryPassword ? "system" : "admin", mustChange: mustChangePassword },
+    });
     return created;
   });
-  return { user, temporaryPassword };
+  return { user: { ...user, email: publicEmail(user.email) }, temporaryPassword };
 }
 
-export async function updateUser(db: Db, actorId: string, targetId: string, input: { name?: string; email?: string; username?: string }) {
+export async function updateUser(db: Db, actorId: string, targetId: string, input: { name?: string; email?: string | null; username?: string }) {
   const actor = await requireSystemRole(db, actorId, "ADMIN");
   return db.$transaction(async (tx) => {
     const target = await loadManageableTarget(tx, actor, targetId);
     const data: { name?: string; email?: string; emailVerified?: boolean; username?: string; displayUsername?: string } = {};
     if (input.name) data.name = input.name.trim();
-    if (input.email && input.email.trim().toLowerCase() !== target.email) {
-      data.email = input.email.trim().toLowerCase();
-      data.emailVerified = false;
-      if (await tx.user.findFirst({ where: { email: data.email, NOT: { id: targetId } } })) throw conflict("EMAIL_TAKEN", "E-mail já cadastrado");
+    if (input.email !== undefined) {
+      const next = input.email?.trim().toLowerCase() || internalEmailFor(targetId);
+      if (input.email && isInternalEmail(next)) throw badRequest("INVALID_EMAIL", "E-mail inválido");
+      if (next !== target.email) {
+        data.email = next;
+        data.emailVerified = false;
+        if (await tx.user.findFirst({ where: { email: next, NOT: { id: targetId } } })) throw conflict("EMAIL_TAKEN", "E-mail já cadastrado");
+      }
     }
     if (input.username && normalizeUsername(input.username) !== target.username) {
       data.username = normalizeUsername(input.username);
@@ -188,9 +204,9 @@ export async function updateUser(db: Db, actorId: string, targetId: string, inpu
     if (data.email) await revokeAllSessions(tx, targetId);
     await audit(tx, {
       tournamentId: null, actorUserId: actorId, targetType: "USER", targetId, action: "ADMIN_UPDATE_USER",
-      before: { name: target.name, email: target.email, username: target.username }, after: { name: updated.name, email: updated.email, username: updated.username },
+      before: { name: target.name, email: publicEmail(target.email), username: target.username }, after: { name: updated.name, email: publicEmail(updated.email), username: updated.username },
     });
-    return updated;
+    return { ...updated, email: publicEmail(updated.email) };
   });
 }
 

@@ -146,6 +146,31 @@ URL: https://champz-six.vercel.app (projeto Vercel `champz`, deploy automático 
 
 Correção aplicada no deploy: `BETTER_AUTH_URL` na Vercel tinha um TAB inicial que corrompia o `redirect_uri` do Google; o código agora ignora espaços nas variáveis (`src/lib/env.ts`). Recomenda-se também limpar o valor no painel.
 
+## Marca oficial, e-mail opcional e storage (26/10/2026, noite)
+
+**Marca** (`branding/champz-logo-original.png` → `scripts/generate-brand-assets.mjs`, reexecutável):
+- `src/app/favicon.ico` (16/32/48, símbolo da taça sem o nome, legível em tamanho pequeno), `public/icons/favicon-32.png`.
+- PWA: `icon-192.png`, `icon-512.png` (logo completa em fundo escuro), `icon-maskable-192/512.png` (margem de segurança), `apple-touch-icon.png` (180, símbolo), atalho 96px.
+- `src/app/opengraph-image.jpg` (1200×630), logo WebP para a UI (`public/brand/*`, 11–74 KB).
+- Aplicada em: landing (cabeçalho + destaque animado), login, splash da área logada, cabeçalho da home, banner/tutorial de instalação.
+- Removidos: rota de ícone gerado com "Z", SVGs do Next. `manifest`: nome Champz, ícones `?v=2`, atalhos; service worker `champz-static-v2` limpa o cache antigo.
+
+**E-mail opcional** (sem migração; Superadmin intacto):
+- Admin cria conta com nome + usuário + senha (opcional; vazia = temporária exibida uma vez) e e-mail opcional.
+- O Better Auth exige `user.email` único: contas sem e-mail recebem identificador interno `<id>@sem-email.champz.invalid` (TLD reservado, não entregável). Nunca exibido (APIs devolvem `email: null`), bloqueado no login por e-mail, sem recuperação de senha, sem correspondência com Google.
+- Google segue só por vínculo explícito do titular logado (`linkSocial`), e-mail do Google pode diferir.
+- Teste de integração novo cobre: criar sem e-mail → login → uso sem Google → Google sem vínculo recusado → vincular → login Google na mesma conta → criar com e-mail / remover / reinformar → bloqueio e reset → Superadmin inalterado → cadastro público 404. **57/57 testes.**
+- Validado no navegador (360px): formulário cria conta sem e-mail; login 200; `/api/me` com `email: null`.
+
+**Neon Object Storage — FUNCIONANDO (26/10/2026):**
+- Causa do 403 original: o secret salvo localmente tinha um caractere faltando (`SignatureDoesNotMatch` com chave reconhecida). Com o secret correto do Console, a credencial tem leitura e escrita.
+- Segundo bug (nosso): a URL assinada da miniatura usava o tamanho da foto principal; o Neon valida `content-length` assinado e recusava. Agora o cliente envia `thumbByteSize` e o servidor assina com o tamanho real.
+- SDK sem checksum CRC32 automático nas URLs assinadas (`requestChecksumCalculation: "WHEN_REQUIRED"`).
+- Bucket privado `champz-media` (não existia; criado). CORS: `https://champz-six.vercel.app` e `http://localhost:3000`, PUT/GET/HEAD.
+- `scripts/storage-check.mts`: credencial, bucket, CORS, upload assinado, HEAD, leitura assinada, anônimo negado, remoção — tudo OK.
+- Fluxo no app (servidor local + Neon Storage real + banco local de teste): upload de 2 fotos pela galeria → READY → miniaturas exibidas → download individual (`response-content-disposition`) → álbum ZIP no aparelho (2 arquivos íntegros) → 2 fotos na retrospectiva → não membro 404, anônimo 401, URL sem assinatura 403. Objetos e registros de teste removidos (bucket vazio).
+- Vercel Production: `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` cadastradas como sensíveis (sem `NEXT_PUBLIC_`). Valem no próximo deploy.
+
 ## Próximo passo único
 
-Corrigir a credencial do Neon Object Storage (403), cadastrar `S3_*` na Vercel e testar câmera/galeria/ZIP; até lá o envio de fotos mostra "temporariamente indisponível". Testar instalação PWA no Android e iPhone.
+Autorizar push + deploy; no celular: enviar uma foto real pela câmera, instalar o PWA (Android/iPhone) e conferir o ícone novo.

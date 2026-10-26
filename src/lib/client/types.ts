@@ -3,7 +3,7 @@ export type Format = "LEAGUE" | "GROUPS_ONLY" | "KNOCKOUT" | "GROUPS_KNOCKOUT";
 export type TournamentStatus = "DRAFT" | "OPEN" | "ACTIVE" | "FINISHED" | "CANCELLED";
 
 export type Me = {
-  user: { id: string; name: string; email: string; username: string | null; displayUsername: string | null; image: string | null; avatarMediaId: string | null; role: "SUPERADMIN" | "ADMIN" | "USER"; createdAt: string };
+  user: { id: string; name: string; email: string | null; username: string | null; displayUsername: string | null; image: string | null; avatarMediaId: string | null; role: "SUPERADMIN" | "ADMIN" | "USER"; createdAt: string };
   isSuperadmin: boolean;
   providers: string[];
   mustChangePassword: boolean;

@@ -7,6 +7,7 @@ import { authClient } from "@/lib/client/auth-client";
 import type { Me } from "@/lib/client/types";
 import { gsap, reducedMotion } from "@/lib/client/motion";
 import { Icon, Spinner, ToastProvider } from "./ui";
+import { BrandLogo } from "@/components/BrandLogo";
 
 const MeCtx = createContext<{ me: Me; reload: () => Promise<void> } | null>(null);
 export function useMe() {
@@ -19,7 +20,7 @@ function Splash() {
   return (
     <div className="grid min-h-dvh place-items-center">
       <div className="flex flex-col items-center gap-4">
-        <div className="grid h-16 w-16 place-items-center rounded-3xl bg-lime font-display text-4xl font-black italic text-lime-ink">Z</div>
+        <div className="animate-pulse"><BrandLogo height={130} priority /></div>
         <Spinner />
       </div>
     </div>

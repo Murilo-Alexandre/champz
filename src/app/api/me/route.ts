@@ -3,6 +3,7 @@ import { usernameSchema } from "@/server/validators";
 import { conflict } from "@/server/errors";
 import { isGoogleConfigured } from "@/server/auth/auth";
 import { getSuperadminId } from "@/server/services/admin";
+import { publicEmail } from "@/lib/user-email";
 
 /** Perfil próprio. Responde mesmo com troca de senha pendente, para o app conduzir a troca. */
 export const GET = authed(
@@ -16,7 +17,7 @@ export const GET = authed(
     });
     const { accounts, ...rest } = user;
     return {
-      user: rest,
+      user: { ...rest, email: publicEmail(rest.email) },
       isSuperadmin: (await getSuperadminId(db)) === userId,
       providers: accounts.map((a) => a.providerId),
       mustChangePassword: user.mustChangePassword,

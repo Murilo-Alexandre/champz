@@ -8,6 +8,7 @@ import { useGSAP, revealChildren } from "@/lib/client/motion";
 import { useMe } from "@/components/AppShell";
 import { EmptyState, ErrorState, Icon, Segmented, Skeleton } from "@/components/ui";
 import { InstallAppBanner } from "@/components/InstallAppBanner";
+import { BrandLogo } from "@/components/BrandLogo";
 
 const STATUS_TONE: Record<string, string> = { ACTIVE: "text-lime", FINISHED: "text-gold", DRAFT: "text-muted", OPEN: "text-cyan", CANCELLED: "text-danger" };
 
@@ -45,8 +46,9 @@ export default function HomePage() {
 
   return (
     <div ref={ref} className="flex flex-col gap-6">
-      <header data-reveal className="flex items-center justify-between">
-        <div>
+      <header data-reveal className="flex items-center justify-between gap-3">
+        <BrandLogo variant="symbol" height={40} priority />
+        <div className="min-w-0 flex-1">
           <p className="text-sm text-muted">Fala, {first}</p>
           <h1 className="font-display text-4xl font-extrabold">Seus campeonatos</h1>
         </div>

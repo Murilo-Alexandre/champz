@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { authClient } from "@/lib/client/auth-client";
 import { gsap, useGSAP, reducedMotion } from "@/lib/client/motion";
 import { Icon, Spinner } from "@/components/ui";
+import { BrandLogo } from "@/components/BrandLogo";
 
 const GOOGLE_ERRORS: Record<string, string> = {
   google: "Essa conta Google não está vinculada a nenhum usuário do Champz. Entre com usuário e senha e vincule o Google no seu perfil.",
@@ -56,7 +57,7 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
   return (
     <div ref={scope} className="flex flex-col gap-6">
       <div className="flex flex-col items-center gap-3 text-center">
-        <Link href="/" data-logo className="grid h-20 w-20 place-items-center rounded-[28px] bg-lime font-display text-5xl font-black italic text-lime-ink shadow-[0_16px_50px_-12px_rgba(198,255,61,.7)]">Z</Link>
+        <Link href="/" data-logo aria-label="Champz — início" className="drop-shadow-[0_18px_40px_rgba(255,201,74,.35)]"><BrandLogo height={150} priority /></Link>
         <h1 data-in className="font-display text-4xl font-extrabold">Bora pro jogo</h1>
         <p data-in className="text-sm text-muted">Entre para lançar placares e acompanhar o campeonato.</p>
       </div>

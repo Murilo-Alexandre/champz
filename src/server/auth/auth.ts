@@ -2,9 +2,10 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { username } from "better-auth/plugins/username";
 import { nextCookies } from "better-auth/next-js";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { getPrisma } from "@/lib/db/prisma";
 import { env } from "@/lib/env";
+import { isInternalEmail } from "@/lib/user-email";
 
 const googleConfigured = !!env("GOOGLE_CLIENT_ID") && !!env("GOOGLE_CLIENT_SECRET");
 
@@ -116,6 +117,13 @@ export const auth = betterAuth({
       "/sign-in/username": { window: 60, max: 10 },
       "/change-password": { window: 60, max: 5 },
     },
+  },
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/sign-in/email" && isInternalEmail((ctx.body as { email?: string } | undefined)?.email)) {
+        throw new APIError("UNAUTHORIZED", { message: "Invalid email or password", code: "INVALID_EMAIL_OR_PASSWORD" });
+      }
+    }),
   },
   trustedOrigins,
   advanced: {

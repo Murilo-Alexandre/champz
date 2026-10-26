@@ -185,18 +185,18 @@ describe("hierarquia e administração", () => {
 
   it("Superadmin cria e promove administrador; promoção revoga sessões do alvo", async () => {
     const created = await M.admin.createUser(M.prisma, superId, { name: "Gestor", email: "gestor@champz.test", username: "gestor", role: "USER" });
-    expect(created.temporaryPassword.length).toBeGreaterThanOrEqual(16);
+    expect(created.temporaryPassword!.length).toBeGreaterThanOrEqual(16);
     adminId = created.user.id;
     const res = await M.roleRoute.PUT(jsonRequest(`/api/admin/users/${adminId}/role`, "PUT", superCookie, { role: "ADMIN" }), params({ userId: adminId }));
     expect(res.status).toBe(200);
     expect((await M.prisma.user.findUniqueOrThrow({ where: { id: adminId } })).role).toBe("ADMIN");
     // Primeiro acesso com senha temporária: troca obrigatória antes de usar o app.
-    adminCookie = await login("gestor", created.temporaryPassword);
+    adminCookie = await login("gestor", created.temporaryPassword!);
     const blocked = await M.usersRoute.GET(jsonRequest("/api/admin/users", "GET", adminCookie), params({}));
     expect(blocked.status).toBe(403);
     expect(((await blocked.json()) as { error: { code: string } }).error.code).toBe("PASSWORD_CHANGE_REQUIRED");
     expect(await meStatus(adminCookie)).toBe(200);
-    await M.auth.api.changePassword({ body: { currentPassword: created.temporaryPassword, newPassword: "nova-senha-gestor-1" }, headers: new Headers({ cookie: adminCookie }) });
+    await M.auth.api.changePassword({ body: { currentPassword: created.temporaryPassword!, newPassword: "nova-senha-gestor-1" }, headers: new Headers({ cookie: adminCookie }) });
     expect((await M.prisma.user.findUniqueOrThrow({ where: { id: adminId } })).mustChangePassword).toBe(false);
     const ok = await M.usersRoute.GET(jsonRequest("/api/admin/users?search=ana", "GET", adminCookie), params({}));
     expect(ok.status).toBe(200);
@@ -208,15 +208,15 @@ describe("hierarquia e administração", () => {
     userId = created.user.id;
     await M.admin.updateUser(M.prisma, adminId, userId, { name: "Comum Editado" });
     await M.admin.setBanned(M.prisma, adminId, userId, true, "Teste de bloqueio");
-    await expect(login("comum", created.temporaryPassword)).rejects.toThrow();
+    await expect(login("comum", created.temporaryPassword!)).rejects.toThrow();
     await M.admin.setBanned(M.prisma, adminId, userId, false);
     await expect(M.admin.setRole(M.prisma, adminId, userId, "ADMIN")).rejects.toMatchObject({ status: 403 });
     await expect(M.admin.createUser(M.prisma, adminId, { name: "Outro", email: "o@champz.test", username: "outroadm", role: "ADMIN" })).rejects.toMatchObject({ status: 403 });
     const viaApi = await M.roleRoute.PUT(jsonRequest(`/api/admin/users/${userId}/role`, "PUT", adminCookie, { role: "ADMIN" }), params({ userId }));
     expect(viaApi.status).toBe(403);
     // USER comum não acessa a administração.
-    const comumCookie = await login("comum", created.temporaryPassword);
-    await M.auth.api.changePassword({ body: { currentPassword: created.temporaryPassword, newPassword: "senha-comum-nova-1" }, headers: new Headers({ cookie: comumCookie }) });
+    const comumCookie = await login("comum", created.temporaryPassword!);
+    await M.auth.api.changePassword({ body: { currentPassword: created.temporaryPassword!, newPassword: "senha-comum-nova-1" }, headers: new Headers({ cookie: comumCookie }) });
     const denied = await M.usersRoute.GET(jsonRequest("/api/admin/users", "GET", await login("comum", "senha-comum-nova-1")), params({}));
     expect(denied.status).toBe(403);
   });
@@ -254,6 +254,61 @@ describe("hierarquia e administração", () => {
     const fresh = await login("comum", temporaryPassword);
     const create = await M.tournamentsRoute.POST(jsonRequest("/api/tournaments", "POST", fresh, { name: "Bloqueado", format: "LEAGUE" }), params({}));
     expect(create.status).toBe(403);
+  });
+
+  it("conta sem e-mail: cria, entra por usuário/senha, vincula Google depois e o Google entra na mesma conta", async () => {
+    const supBefore = await M.prisma.user.findUniqueOrThrow({ where: { id: superId }, include: { accounts: true } });
+    // 1. ADMIN (aqui o Superadmin) cria USER só com nome, usuário e senha definida.
+    const res = await M.usersRoute.POST(jsonRequest("/api/admin/users", "POST", superCookie, { name: "Sem Email", username: "semEmail", password: "senha-sem-email-1", mustChangePassword: false }), params({}));
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { user: { id: string; email: string | null }; temporaryPassword: string | null };
+    expect(body.user.email).toBeNull();
+    expect(body.temporaryPassword).toBeNull();
+    const stored = await M.prisma.user.findUniqueOrThrow({ where: { id: body.user.id } });
+    expect(stored.email).toMatch(/@sem-email\.champz\.invalid$/); // identificador interno, nunca exibido
+
+    // 2–3. Entra com usuário e senha e usa o app sem Google.
+    const cookie = await login("sememail", "senha-sem-email-1");
+    const me = await M.meRoute.GET(jsonRequest("/api/me", "GET", cookie), params({}));
+    const meBody = (await me.json()) as { user: { email: string | null }; providers: string[] };
+    expect(me.status).toBe(200);
+    expect(meBody.user.email).toBeNull();
+    expect(meBody.providers).toEqual(["credential"]);
+    const t = await M.tournamentsRoute.POST(jsonRequest("/api/tournaments", "POST", cookie, { name: "Copa sem e-mail", format: "LEAGUE" }), params({}));
+    expect(t.status).toBe(201);
+
+    // O identificador interno não serve para login por e-mail.
+    const viaEmail = await call("/sign-in/email", "POST", null, { email: stored.email, password: "senha-sem-email-1" });
+    expect(viaEmail.status).toBe(401);
+
+    // Google com e-mail qualquer não entra nem cria conta antes do vínculo.
+    googleProfile = { sub: "g-sem-email", email: "qualquer.um@gmail.com", name: "Sem Email" };
+    expect((await googleFlow()).location).toContain("error");
+
+    // 4–5. Vincula Google pelo perfil (logado) e depois entra pelo Google na MESMA conta.
+    expect((await googleFlow({ link: cookie })).location).toContain("/perfil");
+    const viaGoogle = await googleFlow();
+    expect(viaGoogle.sessionCookie).toContain("session_token=");
+    const me2 = await M.meRoute.GET(jsonRequest("/api/me", "GET", viaGoogle.sessionCookie), params({}));
+    expect(((await me2.json()) as { user: { id: string } }).user.id).toBe(body.user.id);
+
+    // 6. Cadastro com e-mail continua funcionando; e-mail pode ser removido e reinformado.
+    const withEmail = await M.admin.createUser(M.prisma, superId, { name: "Com Email", email: "com.email@champz.test", username: "comemail", role: "USER" });
+    expect(withEmail.user.email).toBe("com.email@champz.test");
+    expect((await M.admin.updateUser(M.prisma, superId, withEmail.user.id, { email: null })).email).toBeNull();
+    expect((await M.admin.updateUser(M.prisma, superId, withEmail.user.id, { email: "novo@champz.test" })).email).toBe("novo@champz.test");
+
+    // 7. Bloqueio e reset continuam valendo para conta sem e-mail.
+    await M.admin.setBanned(M.prisma, superId, body.user.id, true, "Teste");
+    await expect(login("sememail", "senha-sem-email-1")).rejects.toThrow();
+    await M.admin.setBanned(M.prisma, superId, body.user.id, false);
+    const reset = await M.admin.resetPassword(M.prisma, superId, body.user.id);
+    expect(await meStatus(await login("sememail", reset.temporaryPassword))).toBe(200);
+
+    // 8. Superadmin intacto. 9. Cadastro público segue bloqueado.
+    const supAfter = await M.prisma.user.findUniqueOrThrow({ where: { id: superId }, include: { accounts: true } });
+    expect([supAfter.email, supAfter.role, supAfter.accounts.length]).toEqual([supBefore.email, "SUPERADMIN", supBefore.accounts.length]);
+    expect((await call("/sign-up/email", "POST", null, { email: "x@y.com", password: "senha-qualquer-1", name: "X" })).status).toBe(404);
   });
 
   it("ações administrativas ficam no log imutável, sem senhas", async () => {

@@ -51,7 +51,7 @@ export async function requestUpload(db: Db, userId: string, tournamentId: string
 
     const prefix = tournamentId ? `t/${tournamentId}` : `u/${userId}`;
     const objectKey = randomObjectKey(prefix, input.mimeType);
-    const thumbKey = input.withThumbnail ? objectKey.replace(/(\.\w+)$/, ".thumb$1") : null;
+    const thumbKey = input.withThumbnail && input.thumbByteSize ? objectKey.replace(/(\.\w+)$/, ".thumb$1") : null;
     const media = await tx.media.create({
       data: {
         ownerUserId: userId, tournamentId, stageId: input.stageId, roundId: input.roundId, matchId: input.matchId,
@@ -60,7 +60,7 @@ export async function requestUpload(db: Db, userId: string, tournamentId: string
       },
     });
     const uploadUrl = await storage.presignPut(objectKey, input.mimeType, input.byteSize);
-    const thumbUploadUrl = thumbKey ? await storage.presignPut(thumbKey, input.mimeType, Math.min(input.byteSize, 500_000)) : null;
+    const thumbUploadUrl = thumbKey ? await storage.presignPut(thumbKey, input.mimeType, input.thumbByteSize!) : null;
     return { media, uploadUrl, thumbUploadUrl, headers: { "Content-Type": input.mimeType } };
   });
 }

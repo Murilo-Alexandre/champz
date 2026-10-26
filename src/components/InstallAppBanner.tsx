@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Icon, Sheet } from "./ui";
+import { BrandLogo } from "@/components/BrandLogo";
 
 type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
@@ -47,7 +48,7 @@ export function InstallAppBanner({ variant = "card" }: { variant?: "card" | "row
   return (
     <>
       <div className={variant === "card" ? "card flex items-center gap-3 p-4" : "flex items-center gap-3"} data-reveal>
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-lime font-display text-2xl font-black italic text-lime-ink">Z</div>
+        <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl bg-bg-2"><BrandLogo variant="symbol" height={30} /></span>
         <div className="min-w-0 flex-1">
           <p className="font-bold">Instalar Champz</p>
           <p className="text-xs text-muted">Abre em tela cheia, direto da tela inicial.</p>
@@ -58,7 +59,7 @@ export function InstallAppBanner({ variant = "card" }: { variant?: "card" | "row
         <ol className="flex flex-col gap-4 text-[15px]">
           <li className="flex gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface-2"><Icon name="share" /></span><span>No Safari, toque em <b>Compartilhar</b> na barra inferior.</span></li>
           <li className="flex gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface-2"><Icon name="plus" /></span><span>Role e escolha <b>Adicionar à Tela de Início</b>.</span></li>
-          <li className="flex gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-lime font-black italic text-lime-ink">Z</span><span>Confirme em <b>Adicionar</b>. O Champz aparece com o ícone na tela inicial.</span></li>
+          <li className="flex gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-bg-2"><BrandLogo variant="symbol" height={22} /></span><span>Confirme em <b>Adicionar</b>. O Champz aparece com o ícone na tela inicial.</span></li>
         </ol>
         <p className="mt-5 text-xs text-muted">Em outros navegadores do iPhone essa opção pode não existir; use o Safari.</p>
       </Sheet>

@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { gsap, ScrollTrigger, useGSAP, reducedMotion } from "@/lib/client/motion";
 import { ScrollSmoother } from "gsap/ScrollSmoother";
 import { InstallAppBanner } from "@/components/InstallAppBanner";
+import { BrandLogo } from "@/components/BrandLogo";
 
 const FEATURES = [
   { k: "01", t: "Grupos e mata-mata", d: "Tabela calculada no servidor, desempates configuráveis, melhores terceiros e chaveamento sem reencontro do mesmo grupo." },
@@ -33,6 +34,7 @@ export function Landing() {
     gsap.timeline()
       .fromTo("[data-hero]", { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.8, stagger: 0.1, ease: "power4.out" })
       .fromTo("[data-board-row]", { x: 30, opacity: 0 }, { x: 0, opacity: 1, duration: 0.5, stagger: 0.08, ease: "power3.out" }, "-=0.4");
+    gsap.to("[data-logo-hero]", { y: -8, repeat: -1, yoyo: true, duration: 2.6, ease: "sine.inOut" });
     gsap.to("[data-ball]", { y: -14, rotate: 25, repeat: -1, yoyo: true, duration: 1.4, ease: "sine.inOut" });
     gsap.utils.toArray<HTMLElement>("[data-feature]").forEach((el) => {
       gsap.fromTo(el, { y: 60, opacity: 0 }, { y: 0, opacity: 1, duration: 0.8, ease: "power3.out", scrollTrigger: { trigger: el, start: "top 85%" } });
@@ -48,14 +50,15 @@ export function Landing() {
         <div id="smooth-content">
           <header className="mx-auto flex max-w-5xl items-center justify-between px-5" style={{ paddingTop: "calc(16px + var(--safe-top))" }}>
             <span className="flex items-center gap-2 font-display text-2xl font-extrabold">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-lime text-xl font-black italic text-lime-ink">Z</span>Champz
+              <BrandLogo variant="symbol" height={34} priority />Champz
             </span>
             <Link href="/entrar" className="btn btn-ghost btn-sm">Entrar</Link>
           </header>
 
           <section className="mx-auto grid max-w-5xl items-center gap-10 px-5 pb-16 pt-12 md:grid-cols-[1.1fr_1fr] md:pt-20">
             <div>
-              <p data-hero className="mb-4 text-xs font-bold uppercase tracking-[0.3em] text-lime">FIFA entre amigos</p>
+              <div data-hero data-logo-hero className="mx-auto mb-6 w-fit md:mx-0 drop-shadow-[0_24px_60px_rgba(255,201,74,.35)]"><BrandLogo height={190} priority /></div>
+              <p data-hero className="mb-4 text-xs font-bold uppercase tracking-[0.3em] text-gold">FIFA entre amigos</p>
               <h1 data-hero className="font-display text-[clamp(3rem,13vw,6rem)] font-extrabold uppercase leading-[0.88]">
                 O campeonato<br />da galera,<br /><span className="text-lime">levado a sério.</span>
               </h1>

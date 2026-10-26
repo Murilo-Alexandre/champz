@@ -6,9 +6,9 @@ import { fmtDate } from "@/lib/client/labels";
 import { useGSAP, revealChildren } from "@/lib/client/motion";
 import { useMe } from "@/components/AppShell";
 import { UserAvatar } from "@/components/ParticipantAvatar";
-import { EmptyState, ErrorState, Icon, Segmented, Sheet, Skeleton, Spinner, useToast } from "@/components/ui";
+import { EmptyState, ErrorState, Icon, Segmented, Sheet, Skeleton, Spinner, Toggle, useToast } from "@/components/ui";
 
-type AdminUser = { id: string; name: string; email: string; username: string | null; role: "SUPERADMIN" | "ADMIN" | "USER"; banned: boolean; banReason: string | null; mustChangePassword: boolean; createdAt: string; providers: string[]; isSuperadmin: boolean };
+type AdminUser = { id: string; name: string; email: string | null; username: string | null; role: "SUPERADMIN" | "ADMIN" | "USER"; banned: boolean; banReason: string | null; mustChangePassword: boolean; createdAt: string; providers: string[]; isSuperadmin: boolean };
 type Page = { items: AdminUser[]; total: number; page: number; pageSize: number };
 
 const ROLE: Record<AdminUser["role"], string> = { SUPERADMIN: "Superadmin", ADMIN: "Admin", USER: "Usuário" };
@@ -44,7 +44,7 @@ export default function AdminPage() {
               <UserAvatar name={u.name} size={40} />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{u.name} {u.banned && <span className="text-xs text-danger">· bloqueado</span>}</p>
-                <p className="truncate text-xs text-muted">@{u.username} · {u.email}</p>
+                <p className="truncate text-xs text-muted">@{u.username}{u.email ? ` · ${u.email}` : " · sem e-mail"}</p>
               </div>
               <span className={`chip ${u.role !== "USER" ? "border-lime/40 text-lime" : ""}`}>{ROLE[u.role]}</span>
             </button>
@@ -54,7 +54,7 @@ export default function AdminPage() {
       )}
 
       <Sheet open={creating} onClose={() => setCreating(false)} title="Novo usuário">
-        <CreateUser canAdmin={me.isSuperadmin} onCreated={(who, password) => { setCreating(false); setSecret({ who, password }); list.reload(); }} />
+        <CreateUser canAdmin={me.isSuperadmin} toast={toast} onCreated={(who, password) => { setCreating(false); if (password) setSecret({ who, password }); list.reload(); }} />
       </Sheet>
 
       <Sheet open={!!sel} onClose={() => setSel(null)} title={sel?.name}>
@@ -74,24 +74,42 @@ export default function AdminPage() {
   );
 }
 
-function CreateUser({ canAdmin, onCreated }: { canAdmin: boolean; onCreated: (who: string, password: string) => void }) {
-  const [f, setF] = useState({ name: "", email: "", username: "", role: "USER" as "USER" | "ADMIN" });
+function CreateUser({ canAdmin, onCreated, toast }: { canAdmin: boolean; onCreated: (who: string, password: string | null) => void; toast: (t: string, tone?: "ok" | "err") => void }) {
+  const [f, setF] = useState({ name: "", email: "", username: "", password: "", mustChangePassword: true, role: "USER" as "USER" | "ADMIN" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   return (
     <form className="flex flex-col gap-3" onSubmit={async (e) => {
       e.preventDefault(); setBusy(true); setErr(null);
       try {
-        const r = await api<{ user: { name: string }; temporaryPassword: string }>("/api/admin/users", { body: f });
+        const r = await api<{ user: { name: string }; temporaryPassword: string | null }>("/api/admin/users", {
+          body: {
+            name: f.name, username: f.username, role: f.role,
+            email: f.email.trim() || undefined,
+            password: f.password || undefined,
+            mustChangePassword: f.mustChangePassword,
+          },
+        });
+        if (!r.temporaryPassword) toast(`Conta de ${r.user.name} criada`);
         onCreated(r.user.name, r.temporaryPassword);
       } catch (e2) { setErr(errorMessage(e2)); } finally { setBusy(false); }
     }}>
       <div><label className="label" htmlFor="cn">Nome</label><input id="cn" className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></div>
-      <div><label className="label" htmlFor="ce">E-mail</label><input id="ce" type="email" className="input" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required /></div>
       <div><label className="label" htmlFor="cu">Usuário</label><input id="cu" className="input" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} pattern="[a-zA-Z0-9_.]{3,24}" autoCapitalize="none" required /></div>
+      <div>
+        <label className="label" htmlFor="cp">Senha <span className="font-normal">(opcional)</span></label>
+        <input id="cp" type="password" className="input" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} minLength={8} autoComplete="new-password" />
+        <p className="mt-1 text-xs text-muted">Em branco: o Champz gera uma senha temporária e mostra uma única vez.</p>
+      </div>
+      {f.password && <Toggle label="Pedir troca de senha no 1º acesso" checked={f.mustChangePassword} onChange={(v) => setF({ ...f, mustChangePassword: v })} />}
+      <div>
+        <label className="label" htmlFor="ce">E-mail <span className="font-normal">(opcional)</span></label>
+        <input id="ce" type="email" className="input" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} autoComplete="off" />
+        <p className="mt-1 text-xs text-muted">Não é preciso e-mail nem Google: a pessoa entra com usuário e senha e pode vincular o Google depois, no perfil.</p>
+      </div>
       {canAdmin && <Segmented options={[{ id: "USER", label: "Usuário" }, { id: "ADMIN", label: "Admin" }]} value={f.role} onChange={(role) => setF({ ...f, role })} />}
       {err && <p className="text-sm text-danger" role="alert">{err}</p>}
-      <button className="btn btn-primary" disabled={busy}>{busy ? <Spinner /> : "Criar com senha temporária"}</button>
+      <button className="btn btn-primary" disabled={busy}>{busy ? <Spinner /> : "Criar conta"}</button>
     </form>
   );
 }
@@ -112,7 +130,7 @@ function UserActions({ user, meId, superadmin, onSecret, onChanged, toast }: { u
   return (
     <div className="flex flex-col gap-3">
       <div className="text-sm text-muted">
-        <p>@{user.username} · {user.email}</p>
+        <p>@{user.username} · {user.email ?? "sem e-mail"}</p>
         <p>Desde {fmtDate(user.createdAt)} · login: {user.providers.map((p) => (p === "credential" ? "senha" : p)).join(", ")}</p>
         {user.banned && <p className="text-danger">Bloqueado: {user.banReason}</p>}
       </div>
