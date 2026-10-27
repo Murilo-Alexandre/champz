@@ -184,6 +184,14 @@ Verificado com: `npm run typecheck` OK, `npm run lint` OK (0 problemas), `npx vi
 - **Piscadas na navegação — causa:** (1) `revealChildren` escondia e reanimava **todos** os elementos da tela a cada recarga de dados ou troca de aba; agora anima só elementos novos. (2) Cada visita refazia as buscas e voltava ao esqueleto: `useApi` passou a reaproveitar a última resposta e revalidar em segundo plano, inclusive as fases do campeonato. (3) O perfil carregado fica em memória para a área logada não voltar ao splash; é limpo no login e no logout. Medido no navegador local (5 navegações entre início, campeonato e perfil): 0 esqueletos visíveis em revisitas, menu inferior sempre presente, nenhum splash. Não foi reproduzido em produção antes da correção (exigiria login na produção).
 - Service worker `champz-static-v3` também guarda os escudos estáticos.
 
+## Publicado em 26/10/2026 (noite) — `cbeda65`
+
+- Neon: migração `20261027000000_club_catalog_rules` aplicada (`migrate deploy`); seed só do catálogo (sem demonstração). 80 clubes (24 nacionais, 34 internacionais, 22 seleções), 79 com escudo; os 24 IDs antigos foram preservados e não há nomes duplicados. Contagens de usuários e auditoria inalteradas; não havia campeonatos.
+- Vercel: deploy de produção Ready em https://champz-six.vercel.app.
+- Verificado no domínio: `sw.js` em `champz-static-v3` (`must-revalidate`; cache antigo apagado na ativação), `/api/clubs` com 80 itens, escudos WebP 200, `/api/users/search` sem sessão → 401, tela de login sem erros no console, service worker ativo.
+- Busca no Neon testada só com leituras (nome, usuário e e-mail encontram a conta; e-mail não é devolvido).
+- Não testado em produção (exige entrar com a conta do usuário): telas logadas, inscrição duplicada, regras por fase salvas e arrastar e soltar. Cobertos pelos testes automatizados e pelo navegador local.
+
 ## Próximo passo único
 
-Autorizar: aplicar a migração `20261027000000_club_catalog_rules` no Neon (`npm run db:deploy`, só adiciona colunas), rodar o seed de clubes (só catálogo), push + deploy, e testar no celular.
+Testar no celular (Chrome e app instalado): busca de participantes, arrastar e soltar, regras por fase, escolha de clubes e navegação.
