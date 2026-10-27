@@ -454,5 +454,23 @@
     "source": "https://upload.wikimedia.org/wikipedia/commons/e/ed/Juventus_FC_-_logo_black_%28Italy%2C_2020%29.svg",
     "origin": "Wikimedia Commons",
     "article": "https://pt.wikipedia.org/wiki/Juventus_Football_Club"
+  },
+  "sel-italia": {
+    "name": "Itália",
+    "source": "https://upload.wikimedia.org/wikipedia/commons/b/bf/Logo_Italy_National_Football_Team_-_2023.svg",
+    "origin": "Wikimedia Commons",
+    "article": "https://pt.wikipedia.org/wiki/Sele%C3%A7%C3%A3o_Italiana_de_Futebol"
+  },
+  "sel-colombia": {
+    "name": "Colômbia",
+    "source": "https://upload.wikimedia.org/wikipedia/commons/2/29/FCF-Logo-2023.svg",
+    "origin": "Wikimedia Commons",
+    "article": "https://pt.wikipedia.org/wiki/Sele%C3%A7%C3%A3o_Colombiana_de_Futebol"
+  },
+  "sel-dinamarca": {
+    "name": "Dinamarca",
+    "source": "https://upload.wikimedia.org/wikipedia/commons/9/9d/Dansk_boldspil_union_logo.svg",
+    "origin": "Wikimedia Commons",
+    "article": "https://pt.wikipedia.org/wiki/Sele%C3%A7%C3%A3o_Dinamarquesa_de_Futebol"
   }
 }
