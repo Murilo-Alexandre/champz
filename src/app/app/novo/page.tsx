@@ -3,18 +3,25 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
 import { useApi } from "@/lib/client/hooks";
-import type { Club, Format, Settings } from "@/lib/client/types";
+import type { Club, ClubRules, Format, Settings } from "@/lib/client/types";
 import { FORMAT_LABEL, TIEBREAKER_LABEL } from "@/lib/client/labels";
 import { gsap, reducedMotion } from "@/lib/client/motion";
+import { plannedPhases } from "@/lib/tournament/clubRules";
+import { normalizeName } from "@/lib/text";
 import { Icon, NumberField, Segmented, Toggle, useToast } from "@/components/ui";
-import { ClubBadge } from "@/components/ClubBadge";
+import { SortableList } from "@/components/SortableList";
+import { ClubRulesEditor, DEFAULT_RULE, clubRulesErrors, ruleSummary } from "@/components/ClubRules";
+import { ParticipantSearch, type UserHit } from "@/components/ParticipantSearch";
+import { UserAvatar } from "@/components/ParticipantAvatar";
 
-type PlayerInput = { value: string };
+/** Conta do Champz (vínculo real pelo id) ou convidado sem conta. */
+type PlayerInput =
+  | { kind: "user"; userId: string; name: string; username: string | null; avatarMediaId: string | null }
+  | { kind: "guest"; name: string };
 type EntryInput = { name: string; players: PlayerInput[] };
-type ClubMode = "RANDOM" | "PLAYER_CHOICE" | "MANUAL";
 type Draft = {
   name: string; edition: string; description: string; visibility: "PRIVATE" | "PUBLIC"; entryType: "SOLO" | "DUO";
-  entries: EntryInput[]; format: Format; settings: Settings; clubMode: ClubMode; allowRepeat: boolean; allowedClubIds: string[];
+  entries: EntryInput[]; format: Format; settings: Settings & { clubRules: ClubRules };
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -25,15 +32,18 @@ const DEFAULT_SETTINGS: Settings = {
   groupStage: { groupCount: 2, legs: 1, qualifiersPerGroup: 2, bestOfRest: 0 },
   knockout: { legs: 1, drawResolution: "PENALTIES", seeding: "RANKED", avoidSameGroup: true },
   media: { maxUploadBytes: 5_000_000, quotaBytes: 500_000_000 },
+  clubRules: { default: DEFAULT_RULE, phases: {} },
 };
-const EMPTY: Draft = { name: "", edition: String(new Date().getFullYear()), description: "", visibility: "PRIVATE", entryType: "SOLO", entries: [], format: "GROUPS_KNOCKOUT", settings: DEFAULT_SETTINGS, clubMode: "RANDOM", allowRepeat: false, allowedClubIds: [] };
-const KEY = "champz:draft:v1";
+const EMPTY: Draft = { name: "", edition: String(new Date().getFullYear()), description: "", visibility: "PRIVATE", entryType: "SOLO", entries: [], format: "GROUPS_KNOCKOUT", settings: DEFAULT_SETTINGS as Draft["settings"] };
+const KEY = "champz:draft:v2";
 const STEPS = ["Dados", "Participantes", "Formato", "Regras", "Clubes", "Revisão"];
 
-/** "@usuario" vincula conta existente; qualquer outro texto vira convidado sem conta. */
-function toPlayer(v: string) {
-  const s = v.trim();
-  return s.startsWith("@") ? { username: s.slice(1) } : { guestName: s };
+const toPlayer = (p: PlayerInput) => (p.kind === "user" ? { userId: p.userId } : { guestName: p.name });
+
+/** Nome de convidado limpo: espaços simples; tudo minúsculo vira "Iniciais Maiúsculas". */
+function tidyGuest(v: string) {
+  const s = v.trim().replace(/\s+/g, " ");
+  return s === s.toLowerCase() ? s.replace(/(^|\s)(\p{L})/gu, (_, a: string, b: string) => a + b.toUpperCase()) : s;
 }
 
 function groupSizes(n: number, groups: number) {
@@ -57,6 +67,7 @@ export default function NewTournamentPage() {
   const router = useRouter();
   const toast = useToast();
   const [d, setD] = useState<Draft>(EMPTY);
+  const { data: clubs } = useApi<Club[]>("/api/clubs");
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -66,7 +77,8 @@ export default function NewTournamentPage() {
     try {
       const raw = localStorage.getItem(KEY);
       // eslint-disable-next-line react-hooks/set-state-in-effect -- restaura rascunho local
-      if (raw) setD({ ...EMPTY, ...JSON.parse(raw) });
+      if (raw) { const saved = JSON.parse(raw); setD({ ...EMPTY, ...saved, settings: { ...DEFAULT_SETTINGS, ...saved.settings } }); }
+      localStorage.removeItem("champz:draft:v1");
     } catch {}
   }, []);
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch {} }, [d]);
@@ -79,15 +91,17 @@ export default function NewTournamentPage() {
   }, [step]);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }));
-  const setS = (fn: (s: Settings) => Settings) => setD((x) => ({ ...x, settings: fn(x.settings) }));
+  const setS = (fn: (s: Draft["settings"]) => Draft["settings"]) => setD((x) => ({ ...x, settings: fn(x.settings) }));
 
   const n = d.entries.length;
+  const phases = plannedPhases(d.format, n, d.settings.groupStage);
+  const clubErrors = Object.values(clubRulesErrors(d.settings.clubRules, phases, clubs ?? []));
   const errors: (string | null)[] = [
     d.name.trim().length < 3 ? "Dê um nome com pelo menos 3 letras" : null,
-    n < 2 ? "Adicione pelo menos 2 participantes" : d.entries.some((e) => e.players.some((p) => !p.value.trim())) ? "Preencha todos os jogadores" : null,
+    n < 2 ? "Adicione pelo menos 2 participantes" : d.entries.some((e) => e.players.length !== (d.entryType === "DUO" ? 2 : 1)) ? "Complete as duplas" : null,
     (d.format === "GROUPS_KNOCKOUT" || d.format === "GROUPS_ONLY") && n < d.settings.groupStage.groupCount * 2 ? "Cada grupo precisa de pelo menos 2 participantes" : d.format === "GROUPS_KNOCKOUT" && d.settings.groupStage.qualifiersPerGroup * d.settings.groupStage.groupCount + d.settings.groupStage.bestOfRest < 2 ? "Classifique pelo menos 2 para o mata-mata" : null,
     null,
-    d.clubMode !== "MANUAL" && d.allowedClubIds.length > 0 && !d.allowRepeat && d.allowedClubIds.length < Math.min(n, 2) ? "Escolha mais clubes ou permita repetição" : null,
+    clubErrors[0] ?? null,
     null,
   ];
 
@@ -107,11 +121,11 @@ export default function NewTournamentPage() {
       for (let i = 0; i < d.entries.length; i++) {
         setBusy(`Inscrevendo ${i + 1} de ${d.entries.length}…`);
         const e = d.entries[i];
-        await api(`/api/tournaments/${tid}/entries`, { body: { name: e.name.trim() || undefined, players: e.players.map((p) => toPlayer(p.value)) } });
+        await api(`/api/tournaments/${tid}/entries`, { body: { name: e.name.trim() || undefined, players: e.players.map(toPlayer) } });
       }
       if (draw) {
         setBusy(d.format === "KNOCKOUT" ? "Sorteando o chaveamento…" : "Sorteando os grupos…");
-        await api(`/api/tournaments/${tid}/stages`, { body: { mode: "RANDOM", clubs: { mode: d.clubMode, allowRepeat: d.allowRepeat, allowedClubIds: d.allowedClubIds } } });
+        await api(`/api/tournaments/${tid}/stages`, { body: { mode: "RANDOM" } });
       }
       localStorage.removeItem(KEY);
       toast(draw ? "Campeonato criado e sorteado!" : "Campeonato criado");
@@ -141,8 +155,8 @@ export default function NewTournamentPage() {
         {step === 1 && <StepEntries d={d} set={set} />}
         {step === 2 && <StepFormat d={d} set={set} setS={setS} />}
         {step === 3 && <StepRules d={d} setS={setS} />}
-        {step === 4 && <StepClubs d={d} set={set} />}
-        {step === 5 && <StepReview d={d} />}
+        {step === 4 && <ClubRulesEditor rules={d.settings.clubRules} onChange={(r) => setS((x) => ({ ...x, clubRules: r }))} phases={phases} clubs={clubs ?? []} />}
+        {step === 5 && <StepReview d={d} phases={phases} />}
       </div>
 
       <div className="sticky z-10 flex gap-2 rounded-2xl bg-bg/90 py-3 backdrop-blur" style={{ bottom: "calc(var(--nav-h) + var(--safe-bottom))" }}>
@@ -180,39 +194,86 @@ function StepData({ d, set }: { d: Draft; set: SetFn }) {
 }
 
 function StepEntries({ d, set }: { d: Draft; set: SetFn }) {
-  const [text, setText] = useState("");
   const duo = d.entryType === "DUO";
-  const add = () => {
-    const names = text.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
-    if (!names.length) return;
-    const fresh: EntryInput[] = duo
-      ? Array.from({ length: Math.ceil(names.length / 2) }, (_, i) => ({ name: "", players: [{ value: names[i * 2] }, { value: names[i * 2 + 1] ?? "" }] }))
-      : names.map((v) => ({ name: "", players: [{ value: v }] }));
-    set("entries", [...d.entries, ...fresh]);
-    setText("");
+  const [pending, setPending] = useState<PlayerInput | null>(null);
+  const [guest, setGuest] = useState("");
+  const [guestOpen, setGuestOpen] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const players = [...d.entries.flatMap((e) => e.players), ...(pending ? [pending] : [])];
+  const takenUserIds = new Set(players.flatMap((p) => (p.kind === "user" ? [p.userId] : [])));
+  const takenNames = new Set(players.flatMap((p) => (p.kind === "user" ? [p.name, p.username ?? ""] : [p.name])).filter(Boolean).map(normalizeName));
+
+  const add = (p: PlayerInput) => {
+    setMsg(null);
+    if (duo && !pending) { setPending(p); return; }
+    set("entries", [...d.entries, { name: "", players: duo ? [pending!, p] : [p] }]);
+    setPending(null);
   };
-  const update = (i: number, fn: (e: EntryInput) => EntryInput) => set("entries", d.entries.map((e, j) => (j === i ? fn(e) : e)));
+  const pickUser = (u: UserHit) => {
+    if (takenUserIds.has(u.id)) return setMsg(`${u.name} já está no campeonato.`);
+    add({ kind: "user", userId: u.id, name: u.name, username: u.username, avatarMediaId: u.avatarMediaId });
+  };
+  const addGuest = (raw: string) => {
+    const name = tidyGuest(raw);
+    if (name.length < 2) return setMsg("Digite o nome do convidado.");
+    if (takenNames.has(normalizeName(name))) return setMsg(`Já existe um participante chamado “${name}”.`);
+    add({ kind: "guest", name });
+    setGuest("");
+  };
+  const remove = (i: number) => set("entries", d.entries.filter((_, j) => j !== i));
+  const rename = (i: number, name: string) => set("entries", d.entries.map((e, j) => (j === i ? { ...e, name } : e)));
+  const who = (p: PlayerInput) => (
+    <span className="flex min-w-0 items-center gap-2">
+      <UserAvatar name={p.name} mediaId={p.kind === "user" ? p.avatarMediaId : null} size={duo ? 30 : 38} />
+      <span className="min-w-0">
+        <span className="block truncate font-semibold leading-tight">{p.name}</span>
+        <span className="block truncate text-xs text-muted">{p.kind === "user" ? (p.username ? `@${p.username}` : "conta Champz") : "Convidado sem conta"}</span>
+      </span>
+    </span>
+  );
   return (
     <>
-      <div data-reveal className="card p-4">
-        <label className="label" htmlFor="names">{duo ? "Jogadores (em pares, na ordem)" : "Participantes"}</label>
-        <textarea id="names" className="input" value={text} onChange={(e) => setText(e.target.value)} placeholder={"Um por linha ou separados por vírgula.\nUse @usuario para vincular uma conta do Champz."} />
-        <button className="btn btn-ghost mt-3 w-full" onClick={add}><Icon name="plus" size={18} /> Adicionar</button>
+      <div data-reveal className="card flex flex-col gap-3 p-4">
+        <div>
+          <p className="font-display text-xl font-bold">{duo ? (pending ? "Escolha o parceiro" : "Monte as duplas") : "Adicionar participantes"}</p>
+          <p className="text-sm text-muted">Busque contas do Champz e toque para adicionar.{duo && " Cada dois jogadores formam uma dupla."}</p>
+        </div>
+        <ParticipantSearch takenUserIds={takenUserIds} onPick={pickUser} onNoMatch={(q) => { setGuestOpen(true); setGuest(q); }} />
+        {pending && (
+          <div className="flex items-center gap-2 rounded-xl border border-dashed border-lime/60 bg-lime/5 p-2.5">
+            <span className="min-w-0 flex-1">{who(pending)}</span>
+            <span className="text-xs font-bold text-lime">+ parceiro…</span>
+            <button className="grid h-10 w-10 place-items-center rounded-xl text-muted" onClick={() => setPending(null)} aria-label="Cancelar dupla"><Icon name="close" size={18} /></button>
+          </div>
+        )}
+        {msg && <p className="text-sm text-danger" role="alert">{msg}</p>}
+        <div className="border-t border-line/60 pt-3">
+          {!guestOpen ? (
+            <button className="flex min-h-11 w-full items-center gap-2 text-sm font-bold text-muted" onClick={() => setGuestOpen(true)}>
+              <Icon name="user" size={18} /> Adicionar convidado sem conta
+            </button>
+          ) : (
+            <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); addGuest(guest); }}>
+              <label className="label mb-0" htmlFor="guest">Convidado sem conta</label>
+              <p className="-mt-1 text-xs text-muted">Para quem não tem login. Não fica vinculado a nenhuma conta.</p>
+              <div className="flex gap-2">
+                <input id="guest" className="input" value={guest} onChange={(e) => { setGuest(e.target.value); setMsg(null); }} placeholder="Nome do convidado" maxLength={60} autoComplete="off" />
+                <button className="btn btn-ghost shrink-0" aria-label="Adicionar convidado"><Icon name="plus" size={20} /></button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
-      <p data-reveal className="text-sm text-muted">{d.entries.length} {duo ? "duplas" : "participantes"} · nomes sem @ entram como convidados (sem conta).</p>
+      <p data-reveal className="text-sm text-muted">{d.entries.length} {duo ? (d.entries.length === 1 ? "dupla" : "duplas") : d.entries.length === 1 ? "participante" : "participantes"}</p>
       <ul className="flex flex-col gap-2">
         {d.entries.map((e, i) => (
-          <li key={i} data-reveal className="card flex items-center gap-2 p-2.5">
+          <li key={e.players.map((p) => (p.kind === "user" ? p.userId : `g:${p.name}`)).join("+")} data-reveal className="card flex items-center gap-2 p-2.5">
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-surface-2 text-xs font-bold text-muted">{i + 1}</span>
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-              {duo && <input className="input min-h-10 text-sm" placeholder="Nome da dupla (opcional)" value={e.name} onChange={(ev) => update(i, (x) => ({ ...x, name: ev.target.value }))} />}
-              <div className={`grid gap-1.5 ${duo ? "grid-cols-2" : ""}`}>
-                {e.players.map((p, k) => (
-                  <input key={k} className="input min-h-10 text-sm" value={p.value} placeholder={`Jogador ${k + 1}`} onChange={(ev) => update(i, (x) => ({ ...x, players: x.players.map((pp, kk) => (kk === k ? { value: ev.target.value } : pp)) }))} />
-                ))}
-              </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              {duo && <input className="input min-h-10 text-sm" placeholder={`Nome da dupla (opcional): ${e.players.map((p) => p.name.split(" ")[0]).join(" & ")}`} value={e.name} onChange={(ev) => rename(i, ev.target.value)} maxLength={60} />}
+              <div className={`grid gap-2 ${duo ? "grid-cols-2" : ""}`}>{e.players.map((p, k) => <span key={k} className="min-w-0">{who(p)}</span>)}</div>
             </div>
-            <button className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-danger" onClick={() => set("entries", d.entries.filter((_, j) => j !== i))} aria-label="Remover"><Icon name="trash" size={20} /></button>
+            <button className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-danger" onClick={() => remove(i)} aria-label={`Remover ${e.players.map((p) => p.name).join(" e ")}`}><Icon name="trash" size={20} /></button>
           </li>
         ))}
       </ul>
@@ -220,7 +281,7 @@ function StepEntries({ d, set }: { d: Draft; set: SetFn }) {
   );
 }
 
-function StepFormat({ d, set, setS }: { d: Draft; set: SetFn; setS: (fn: (s: Settings) => Settings) => void }) {
+function StepFormat({ d, set, setS }: { d: Draft; set: SetFn; setS: (fn: (s: Draft["settings"]) => Draft["settings"]) => void }) {
   const gs = d.settings.groupStage;
   const groups = d.format === "GROUPS_KNOCKOUT" || d.format === "GROUPS_ONLY";
   const sizes = groupSizes(d.entries.length, gs.groupCount);
@@ -259,15 +320,8 @@ function StepFormat({ d, set, setS }: { d: Draft; set: SetFn; setS: (fn: (s: Set
   );
 }
 
-function StepRules({ d, setS }: { d: Draft; setS: (fn: (s: Settings) => Settings) => void }) {
+function StepRules({ d, setS }: { d: Draft; setS: (fn: (s: Draft["settings"]) => Draft["settings"]) => void }) {
   const s = d.settings;
-  const move = (i: number, by: number) => setS((x) => {
-    const t = [...x.tiebreakers];
-    const j = i + by;
-    if (j < 0 || j >= t.length) return x;
-    [t[i], t[j]] = [t[j], t[i]];
-    return { ...x, tiebreakers: t };
-  });
   const hasKO = d.format === "KNOCKOUT" || d.format === "GROUPS_KNOCKOUT";
   return (
     <>
@@ -278,16 +332,10 @@ function StepRules({ d, setS }: { d: Draft; setS: (fn: (s: Settings) => Settings
         <NumberField label="Derrota" value={s.points.loss} min={-5} max={10} onChange={(v) => setS((x) => ({ ...x, points: { ...x.points, loss: v } }))} />
       </div>
       <div data-reveal className="card px-4 py-3">
-        <p className="mb-2 text-xs font-bold uppercase tracking-widest text-muted">Ordem de desempate</p>
-        {s.tiebreakers.map((t, i) => (
-          <div key={t} className="flex min-h-12 items-center gap-2">
-            <span className="w-6 text-sm font-bold text-muted">{i + 1}º</span>
-            <span className="flex-1 font-semibold">{TIEBREAKER_LABEL[t] ?? t}</span>
-            <button className="grid h-10 w-10 place-items-center rounded-lg bg-surface-2 disabled:opacity-30" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Subir">↑</button>
-            <button className="grid h-10 w-10 place-items-center rounded-lg bg-surface-2 disabled:opacity-30" disabled={i === s.tiebreakers.length - 1} onClick={() => move(i, 1)} aria-label="Descer">↓</button>
-          </div>
-        ))}
-        <p className="mt-1 text-xs text-muted">Empate que nenhum critério resolve fica marcado para decisão manual.</p>
+        <p className="mb-1 text-xs font-bold uppercase tracking-widest text-muted">Ordem de desempate</p>
+        <p className="mb-3 text-xs text-muted">Segure <Icon name="grip" size={14} className="inline align-[-2px]" /> e arraste para reordenar.</p>
+        <SortableList items={s.tiebreakers} keyOf={(t) => t} label={(t) => TIEBREAKER_LABEL[t] ?? t} onChange={(next) => setS((x) => ({ ...x, tiebreakers: next }))} />
+        <p className="mt-2 text-xs text-muted">Empate que nenhum critério resolve fica marcado para decisão manual.</p>
       </div>
       <div data-reveal className="card px-4 py-2">
         <Toggle label="Bônus de melhor saldo" hint="+1 ponto ao melhor saldo quando o grupo encerra" checked={s.bonus.bestGoalDiff.enabled} onChange={(v) => setS((x) => ({ ...x, bonus: { bestGoalDiff: { ...x.bonus.bestGoalDiff, enabled: v } } }))} />
@@ -316,34 +364,7 @@ function StepRules({ d, setS }: { d: Draft; setS: (fn: (s: Settings) => Settings
   );
 }
 
-function StepClubs({ d, set }: { d: Draft; set: SetFn }) {
-  const { data: clubs } = useApi<Club[]>("/api/clubs");
-  const all = (clubs ?? []).filter((c) => c.active);
-  const sel = new Set(d.allowedClubIds);
-  const toggle = (id: string) => set("allowedClubIds", sel.has(id) ? d.allowedClubIds.filter((x) => x !== id) : [...d.allowedClubIds, id]);
-  return (
-    <>
-      <div data-reveal><span className="label">Como cada jogador recebe o clube</span>
-        <Segmented options={[{ id: "RANDOM", label: "Sorteio" }, { id: "PLAYER_CHOICE", label: "Escolha" }, { id: "MANUAL", label: "Admin" }]} value={d.clubMode} onChange={(v) => set("clubMode", v)} />
-        <p className="mt-2 text-xs text-muted">{d.clubMode === "RANDOM" ? "Os clubes são sorteados a cada rodada, com registro auditável." : d.clubMode === "PLAYER_CHOICE" ? "Cada jogador escolhe o clube antes da partida." : "Quem tem permissão define os clubes de cada jogo."}</p>
-      </div>
-      <div data-reveal className="card px-4"><Toggle label="Permitir clube repetido na rodada" checked={d.allowRepeat} onChange={(v) => set("allowRepeat", v)} /></div>
-      <div data-reveal>
-        <div className="mb-2 flex items-center justify-between"><span className="label mb-0">Clubes permitidos</span><button className="text-sm font-bold text-lime" onClick={() => set("allowedClubIds", sel.size ? [] : all.map((c) => c.id))}>{sel.size ? "Limpar" : "Todos"}</button></div>
-        <p className="mb-2 text-xs text-muted">{sel.size ? `${sel.size} selecionados` : "Nenhum selecionado = catálogo inteiro."}</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {all.map((c) => (
-            <button key={c.id} onClick={() => toggle(c.id)} className={`flex min-h-12 items-center gap-2 rounded-xl border px-3 text-left text-sm font-semibold transition-colors ${sel.has(c.id) ? "border-lime bg-lime/10" : "border-line bg-bg-2"}`}>
-              <ClubBadge club={c} size={22} /><span className="truncate">{c.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function StepReview({ d }: { d: Draft }) {
+function StepReview({ d, phases }: { d: Draft; phases: { key: string; label: string }[] }) {
   const s = d.settings;
   const rows: [string, string][] = [
     ["Nome", `${d.name}${d.edition ? ` · ${d.edition}` : ""}`],
@@ -355,7 +376,8 @@ function StepReview({ d }: { d: Draft }) {
     ["Pontos", `V ${s.points.win} · E ${s.points.draw} · D ${s.points.loss}`],
     ["Desempate", s.tiebreakers.map((t) => TIEBREAKER_LABEL[t]).join(" › ")],
     ["W.O.", `${s.walkover.presentPoints} x ${s.walkover.absentPoints} pts${s.walkover.symbolicScore ? " · 3 x 0" : ""}`],
-    ["Clubes", `${d.clubMode === "RANDOM" ? "Sorteio" : d.clubMode === "PLAYER_CHOICE" ? "Escolha do jogador" : "Definidos pelo admin"}${d.allowedClubIds.length ? ` · ${d.allowedClubIds.length} clubes` : ""}`],
+    ["Clubes", ruleSummary(s.clubRules.default)],
+    ...phases.filter((p) => s.clubRules.phases[p.key]).map((p) => [`  ${p.label}`, ruleSummary(s.clubRules.phases[p.key])] as [string, string]),
     ["Jogos estimados", String(matchCount(d))],
   ];
   return (

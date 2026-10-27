@@ -8,6 +8,8 @@ import { useApi } from "@/lib/client/hooks";
 import { uploadPhoto } from "@/lib/client/upload";
 import { useGSAP, revealChildren } from "@/lib/client/motion";
 import { useMe } from "@/components/AppShell";
+import { forgetSession } from "@/lib/client/session";
+import { PasswordChangeForm } from "@/components/PasswordChangeForm";
 import { UserAvatar } from "@/components/ParticipantAvatar";
 import { InstallAppBanner } from "@/components/InstallAppBanner";
 import { Icon, Sheet, Spinner, useToast } from "@/components/ui";
@@ -42,6 +44,7 @@ export default function ProfilePage() {
   async function logout() {
     setBusy("out");
     await authClient.signOut();
+    forgetSession();
     router.replace("/entrar");
   }
 
@@ -90,32 +93,9 @@ export default function ProfilePage() {
 
       <InstallAppBanner />
 
-      <Sheet open={pw} onClose={() => setPw(false)} title="Trocar senha"><PasswordForm onDone={() => { setPw(false); toast("Senha alterada"); }} /></Sheet>
+      <Sheet open={pw} onClose={() => setPw(false)} title="Trocar senha"><PasswordChangeForm onDone={() => { setPw(false); toast("Senha alterada"); }} /></Sheet>
       <Sheet open={uname} onClose={() => setUname(false)} title="Nome de usuário"><UsernameForm current={me.user.displayUsername ?? me.user.username ?? ""} onDone={async () => { setUname(false); toast("Nome de usuário salvo"); await reload(); }} /></Sheet>
     </div>
-  );
-}
-
-function PasswordForm({ onDone }: { onDone: () => void }) {
-  const [cur, setCur] = useState("");
-  const [next, setNext] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  return (
-    <form className="flex flex-col gap-3" onSubmit={async (e) => {
-      e.preventDefault();
-      if (next.length < 8) return setErr("Mínimo de 8 caracteres");
-      setBusy(true); setErr(null);
-      const r = await authClient.changePassword({ currentPassword: cur, newPassword: next, revokeOtherSessions: true });
-      setBusy(false);
-      if (r.error) setErr(r.error.message ?? "Não foi possível trocar"); else onDone();
-    }}>
-      <div><label className="label" htmlFor="pc">Senha atual</label><input id="pc" type="password" className="input" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} required /></div>
-      <div><label className="label" htmlFor="pn">Nova senha</label><input id="pn" type="password" className="input" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required /></div>
-      <p className="text-xs text-muted">As outras sessões abertas serão encerradas.</p>
-      {err && <p className="text-sm text-danger" role="alert">{err}</p>}
-      <button className="btn btn-primary" disabled={busy}>{busy ? <Spinner /> : "Salvar"}</button>
-    </form>
   );
 }
 

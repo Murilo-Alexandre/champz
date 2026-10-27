@@ -5,6 +5,8 @@ import { Prisma } from "@/generated/prisma/client";
 import { parseSettings, type TournamentSettings } from "@/lib/tournament/settings";
 import { DEFAULT_PARTICIPANT_FLAGS } from "@/lib/permissions";
 import { audit } from "./audit";
+import { assertClubRulesValid, assertNoRetroactiveClubChange } from "./clubRules";
+import { normalizeName } from "@/lib/text";
 import { requirePermission, requireRead } from "./access";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import type {
@@ -23,6 +25,7 @@ export function settingsOf(t: { settings: unknown }): TournamentSettings {
 export async function createTournament(db: Db, userId: string, input: z.infer<typeof createTournamentSchema>) {
   const settings = parseSettings(input.settings ?? {});
   return db.$transaction(async (tx) => {
+    await assertClubRulesValid(tx, settings);
     const t = await tx.tournament.create({
       data: {
         ownerId: userId,
@@ -96,6 +99,8 @@ export async function updateSettings(db: Db, userId: string, tournamentId: strin
     }
     const before = settingsOf(tournament);
     const next = parseSettings({ ...before, ...input.settings });
+    await assertClubRulesValid(tx, next);
+    await assertNoRetroactiveClubChange(tx, tournamentId, before, next);
     const version = tournament.settingsVersion + 1;
     const updated = await tx.tournament.update({
       where: { id: tournamentId, settingsVersion: tournament.settingsVersion },
@@ -214,17 +219,26 @@ export async function addEntry(db: Db, actorId: string, tournamentId: string, in
       }
       const user = "userId" in p
         ? await tx.user.findUnique({ where: { id: p.userId } })
-        : await tx.user.findUnique({ where: { username: p.username.toLowerCase() } });
-      if (!user) throw notFound("Usuário");
+        : await tx.user.findFirst({ where: { username: { equals: p.username.trim().replace(/^@/, ""), mode: "insensitive" } } });
+      if (!user || user.banned) throw notFound("Usuário");
       resolved.push({ userId: user.id, guestName: null, label: user.name });
     }
     const userIds = resolved.map((r) => r.userId).filter((x): x is string => !!x);
     if (new Set(userIds).size !== userIds.length) throw badRequest("DUPLICATE_PLAYER", "O mesmo usuário não pode formar dupla consigo");
-    const guests = resolved.map((r) => r.guestName?.toLowerCase()).filter(Boolean);
+    const guests = resolved.map((r) => (r.guestName ? normalizeName(r.guestName) : "")).filter(Boolean);
     if (new Set(guests).size !== guests.length) throw badRequest("DUPLICATE_PLAYER", "Jogadores repetidos na dupla");
     if (userIds.length) {
-      const taken = await tx.entryPlayer.findFirst({ where: { tournamentId, userId: { in: userIds } } });
-      if (taken) throw conflict("PLAYER_ALREADY_ENTERED", "Usuário já está inscrito em outra entrada deste campeonato");
+      const taken = await tx.entryPlayer.findFirst({ where: { tournamentId, userId: { in: userIds } }, include: { user: { select: { name: true } } } });
+      if (taken) throw conflict("PLAYER_ALREADY_ENTERED", `${taken.user?.name ?? "Este usuário"} já está inscrito neste campeonato`);
+    }
+    if (guests.length) {
+      // Convidado repetido (ignorando maiúsculas, acentos e espaços) ou igual a uma conta já inscrita.
+      const current = await tx.entryPlayer.findMany({ where: { tournamentId }, select: { guestName: true, user: { select: { name: true, username: true } } } });
+      const taken = new Set(current.flatMap((p) => [p.guestName, p.user?.name, p.user?.username].filter((x): x is string => !!x).map(normalizeName)));
+      const dup = resolved.find((r) => r.guestName && taken.has(normalizeName(r.guestName)));
+      if (dup) throw conflict("PLAYER_ALREADY_ENTERED", `Já existe um participante chamado "${dup.guestName}" neste campeonato`);
+      const accounts = await tx.user.findMany({ where: { username: { in: guests.map((g) => g.replace(/\s+/g, "")) , mode: "insensitive" } }, select: { username: true } });
+      if (accounts.length) throw conflict("GUEST_IS_ACCOUNT", `@${accounts[0].username} já tem conta no Champz. Adicione pela busca de usuários.`);
     }
 
     const entry = await tx.entry.create({

@@ -2,11 +2,34 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
 
-/** Busca simples com recarga manual. `path = null` não busca. */
+/** Última resposta de cada GET nesta aba (só memória; some ao recarregar a página). */
+const cache = new Map<string, unknown>();
+/** Dados derivados que as telas guardam entre visitas (ex.: fases de um campeonato). */
+export const pageCache = new Map<string, unknown>();
+export function clearApiCache() { cache.clear(); pageCache.clear(); }
+
+/**
+ * Busca com recarga manual. `path = null` não busca. Mostra na hora a última resposta conhecida do mesmo
+ * endereço e revalida em segundo plano, então navegar entre telas não volta para o esqueleto de carregamento.
+ */
 export function useApi<T>(path: string | null) {
-  const [data, setData] = useState<T | null>(null);
+  const [data, setDataState] = useState<T | null>(() => (path ? (cache.get(path) as T | undefined) ?? null : null));
   const [error, setError] = useState<ApiError | Error | null>(null);
-  const [loading, setLoading] = useState(!!path);
+  const [loading, setLoading] = useState(!!path && !cache.has(path));
+  const [shownPath, setShownPath] = useState(path);
+  if (shownPath !== path) {
+    // Troca de endereço (ex.: aba Meus/Públicos): usa o cache do novo endereço sem esperar efeito.
+    setShownPath(path);
+    setDataState(path ? (cache.get(path) as T | undefined) ?? null : null);
+    setLoading(!!path && !cache.has(path));
+  }
+  const setData = useCallback((v: T | null | ((prev: T | null) => T | null)) => {
+    setDataState((prev) => {
+      const next = typeof v === "function" ? (v as (p: T | null) => T | null)(prev) : v;
+      if (path && next !== null) cache.set(path, next);
+      return next;
+    });
+  }, [path]);
   const ctrl = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
@@ -14,10 +37,11 @@ export function useApi<T>(path: string | null) {
     ctrl.current?.abort();
     const c = new AbortController();
     ctrl.current = c;
-    setLoading(true);
+    setLoading(!cache.has(path));
     try {
       const d = await api<T>(path, { signal: c.signal });
-      if (!c.signal.aborted) { setData(d); setError(null); }
+      cache.set(path, d);
+      if (!c.signal.aborted) { setDataState(d); setError(null); }
     } catch (e) {
       if (!c.signal.aborted) setError(e as Error);
     } finally {

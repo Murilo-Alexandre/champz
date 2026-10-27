@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import type { Club } from "@/lib/client/types";
 import { useSignedUrl } from "./MediaImage";
 
@@ -15,10 +16,16 @@ function hue(name: string) {
 }
 
 /** Escudo do clube: imagem real quando houver; senão um escudo com sigla. */
-export function ClubBadge({ club, size = 28 }: { club: Pick<Club, "name" | "shortName" | "crestMediaId"> | null | undefined; size?: number }) {
-  const { url } = useSignedUrl(club?.crestMediaId ?? null, true);
+export function ClubBadge({ club, size = 28 }: { club: Pick<Club, "name" | "shortName" | "crestMediaId" | "crestPath"> | null | undefined; size?: number }) {
+  const { url } = useSignedUrl(club?.crestPath ? null : club?.crestMediaId ?? null, true);
+  const [broken, setBroken] = useState<string | null>(null);
   if (!club) return null;
   const h = hue(club.name);
+  if (club.crestPath && broken !== club.crestPath)
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- escudo estático otimizado (WebP 128px)
+      <img src={club.crestPath} alt={club.name} title={club.name} width={size} height={size} loading="lazy" decoding="async" onError={() => setBroken(club.crestPath!)} className="shrink-0 object-contain" style={{ width: size, height: size }} />
+    );
   if (url)
     return (
       // eslint-disable-next-line @next/next/no-img-element -- URL assinada

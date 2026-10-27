@@ -16,6 +16,13 @@ export type PublicUser = { id: string; name: string; username: string | null; im
 export type EntryPlayer = { id: string; userId: string | null; guestName: string | null; user: PublicUser | null };
 export type Entry = { id: string; name: string; type: "SOLO" | "DUO"; active: boolean; withdrawnAt: string | null; withdrawNote: string | null; seed: number | null; players: EntryPlayer[] };
 
+export type ClubMode = "RANDOM" | "PLAYER_CHOICE" | "MANUAL" | "OPPONENT_CHOICE";
+export type ClubPool = "ALL" | "NATIONAL" | "INTERNATIONAL" | "NATIONAL_TEAM" | "CUSTOM";
+export type ClubRule = { mode: ClubMode; allowRepeat: boolean; pool: ClubPool; clubIds: string[] };
+export type ClubRules = { default: ClubRule; phases: Record<string, ClubRule> };
+/** Regra efetiva de uma rodada, calculada pelo servidor. */
+export type RoundClubRule = ClubRule & { key: string; label: string; poolClubIds: string[]; legacy: boolean };
+
 export type Settings = {
   points: { win: number; draw: number; loss: number };
   tiebreakers: string[];
@@ -24,6 +31,7 @@ export type Settings = {
   groupStage: { groupCount: number; legs: 1 | 2; qualifiersPerGroup: number; bestOfRest: number };
   knockout: { legs: 1; drawResolution: "PENALTIES" | "MANUAL"; seeding: "RANKED" | "MANUAL"; avoidSameGroup: boolean };
   media: { maxUploadBytes: number; quotaBytes: number };
+  clubRules?: ClubRules;
 };
 
 export type Tournament = {
@@ -43,7 +51,7 @@ export type StageSummary = { id: string; order: number; type: "GROUP" | "LEAGUE"
 
 export type TournamentView = { tournament: Tournament; myMembership: Membership | null; entries: Entry[]; stages: StageSummary[]; champion: Entry | null };
 
-export type Club = { id: string; name: string; shortName: string | null; country: string | null; stars: number | null; crestMediaId: string | null; active: boolean };
+export type Club = { id: string; name: string; shortName: string | null; country: string | null; stars: number | null; crestMediaId: string | null; crestPath?: string | null; slug?: string | null; category?: "NATIONAL" | "INTERNATIONAL" | "NATIONAL_TEAM"; active: boolean };
 
 export type MatchClub = { side: "HOME" | "AWAY"; clubId: string; source: string; club: Club };
 
@@ -56,7 +64,7 @@ export type Match = {
   completedAt: string | null; version: number; homeEntry: Entry | null; awayEntry: Entry | null; clubs: MatchClub[];
 };
 
-export type Round = { id: string; number: number; name: string | null; matches: Match[] };
+export type Round = { id: string; number: number; name: string | null; matches: Match[]; clubRule?: RoundClubRule };
 
 export type StandingRow = {
   entryId: string; played: number; wins: number; draws: number; losses: number; goalsFor: number; goalsAgainst: number;
@@ -65,7 +73,7 @@ export type StandingRow = {
 export type GroupStanding = { groupId: string; label: string; closedAt: string | null; rows: StandingRow[] };
 
 export type StageView = {
-  stage: StageSummary & { clubAssignmentMode: "RANDOM" | "PLAYER_CHOICE" | "MANUAL"; allowClubRepeat: boolean; allowedClubs: { club: Club }[]; sourceStageId: string | null };
+  stage: StageSummary & { clubAssignmentMode: ClubMode; allowClubRepeat: boolean; allowedClubs: { club: Club }[]; sourceStageId: string | null };
   rounds: Round[];
   standings: GroupStanding[];
 };

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clubRulesSchema } from "./clubRules";
 
 /** Critérios de desempate permitidos, aplicados na ordem configurada. */
 export const TIEBREAKERS = [
@@ -74,6 +75,8 @@ export const tournamentSettingsSchema = z.object({
       quotaBytes: z.number().int().min(1_000_000).default(500_000_000),
     })
     .default({ maxUploadBytes: 5_000_000, quotaBytes: 500_000_000 }),
+  /** Regras de clube por fase. Ausente em campeonatos antigos: valem as configurações gravadas em cada fase. */
+  clubRules: clubRulesSchema.optional(),
 });
 
 export type TournamentSettings = z.infer<typeof tournamentSettingsSchema>;

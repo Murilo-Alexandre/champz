@@ -6,6 +6,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { getPrisma } from "@/lib/db/prisma";
 import { env } from "@/lib/env";
 import { isInternalEmail } from "@/lib/user-email";
+import { PASSWORD_MAX, PASSWORD_MIN } from "@/lib/password-policy";
 
 const googleConfigured = !!env("GOOGLE_CLIENT_ID") && !!env("GOOGLE_CLIENT_SECRET");
 
@@ -47,8 +48,8 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     disableSignUp: true,
-    minPasswordLength: 8,
-    maxPasswordLength: 128,
+    minPasswordLength: PASSWORD_MIN,
+    maxPasswordLength: PASSWORD_MAX,
     // Recuperação de senha depende de provedor de e-mail (pendente no MVP); sem envio simulado.
   },
   socialProviders: googleConfigured
@@ -122,6 +123,12 @@ export const auth = betterAuth({
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path === "/sign-in/email" && isInternalEmail((ctx.body as { email?: string } | undefined)?.email)) {
         throw new APIError("UNAUTHORIZED", { message: "Invalid email or password", code: "INVALID_EMAIL_OR_PASSWORD" });
+      }
+      if (ctx.path === "/change-password") {
+        const b = ctx.body as { currentPassword?: string; newPassword?: string } | undefined;
+        if (b?.newPassword && b.newPassword === b.currentPassword) {
+          throw new APIError("BAD_REQUEST", { message: "A nova senha precisa ser diferente da senha atual.", code: "PASSWORD_REUSED" });
+        }
       }
     }),
   },

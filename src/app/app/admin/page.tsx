@@ -7,6 +7,7 @@ import { useGSAP, revealChildren } from "@/lib/client/motion";
 import { useMe } from "@/components/AppShell";
 import { UserAvatar } from "@/components/ParticipantAvatar";
 import { EmptyState, ErrorState, Icon, Segmented, Sheet, Skeleton, Spinner, Toggle, useToast } from "@/components/ui";
+import { PASSWORD_MIN } from "@/lib/password-policy";
 
 type AdminUser = { id: string; name: string; email: string | null; username: string | null; role: "SUPERADMIN" | "ADMIN" | "USER"; banned: boolean; banReason: string | null; mustChangePassword: boolean; createdAt: string; providers: string[]; isSuperadmin: boolean };
 type Page = { items: AdminUser[]; total: number; page: number; pageSize: number };
@@ -98,7 +99,7 @@ function CreateUser({ canAdmin, onCreated, toast }: { canAdmin: boolean; onCreat
       <div><label className="label" htmlFor="cu">Usuário</label><input id="cu" className="input" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} pattern="[a-zA-Z0-9_.]{3,24}" autoCapitalize="none" required /></div>
       <div>
         <label className="label" htmlFor="cp">Senha <span className="font-normal">(opcional)</span></label>
-        <input id="cp" type="password" className="input" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} minLength={8} autoComplete="new-password" />
+        <input id="cp" type="password" className="input" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} minLength={PASSWORD_MIN} autoComplete="new-password" />
         <p className="mt-1 text-xs text-muted">Em branco: o Champz gera uma senha temporária e mostra uma única vez.</p>
       </div>
       {f.password && <Toggle label="Pedir troca de senha no 1º acesso" checked={f.mustChangePassword} onChange={(v) => setF({ ...f, mustChangePassword: v })} />}

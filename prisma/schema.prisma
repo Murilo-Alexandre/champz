@@ -173,6 +173,13 @@ enum ClubAssignmentMode {
   RANDOM
   PLAYER_CHOICE
   MANUAL
+  OPPONENT_CHOICE
+}
+
+enum ClubCategory {
+  NATIONAL
+  INTERNATIONAL
+  NATIONAL_TEAM
 }
 
 enum MediaKind {
@@ -313,6 +320,10 @@ model Club {
   country      String?
   stars        Float?
   crestMediaId String?
+  /// Escudo estático otimizado em /public (ex.: /crests/flamengo.webp).
+  crestPath    String?
+  slug         String?      @unique
+  category     ClubCategory @default(INTERNATIONAL)
   active       Boolean  @default(true)
   createdById  String?
   createdAt    DateTime @default(now())

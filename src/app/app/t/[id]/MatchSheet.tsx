@@ -2,7 +2,9 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, errorMessage } from "@/lib/client/api";
 import { useApi } from "@/lib/client/hooks";
-import type { AuditItem, Club, Entry, Match, Membership, StageView, Tournament } from "@/lib/client/types";
+import type { AuditItem, Club, Entry, Match, Membership, Round, StageView, Tournament } from "@/lib/client/types";
+import { normalizeName } from "@/lib/text";
+import { CLUB_MODE_LABEL } from "@/components/ClubRules";
 import { hasPermission } from "@/lib/permissions";
 import { Icon, ScoreStepper, Segmented, Sheet, Spinner, useToast } from "@/components/ui";
 import { ParticipantAvatar } from "@/components/ParticipantAvatar";
@@ -14,9 +16,9 @@ import { Confetti } from "@/components/WinnerCelebration";
 type Mode = "score" | "wo" | "history" | "photos";
 
 export function MatchSheet({
-  match, stage, tournament, member, entries, myUserId, onClose, onSaved, onRefresh,
+  match, stage, round, tournament, member, entries, myUserId, onClose, onSaved, onRefresh,
 }: {
-  match: Match | null; stage: StageView["stage"] | null; tournament: Tournament; member: Membership | null; entries: Map<string, Entry>; myUserId: string;
+  match: Match | null; stage: StageView["stage"] | null; round: Round | null; tournament: Tournament; member: Membership | null; entries: Map<string, Entry>; myUserId: string;
   onClose: () => void; onSaved: (opts?: { finished?: boolean }) => void; onRefresh: () => Promise<void>;
 }) {
   const toast = useToast();
@@ -30,13 +32,15 @@ export function MatchSheet({
   const [absent, setAbsent] = useState<"HOME" | "AWAY" | "BOTH">("AWAY");
   const [busy, setBusy] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
+  const [picking, setPicking] = useState<"HOME" | "AWAY" | null>(null);
+  const [clubQ, setClubQ] = useState("");
 
   const matchId = match?.id;
   useEffect(() => {
     if (!match) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reinicia formulário ao abrir outra partida
     setMode("score"); setHome(match.homeScore ?? 0); setAway(match.awayScore ?? 0); setHp(match.homePenalties ?? 0); setAp(match.awayPenalties ?? 0);
-    setWinner(null); setReason(""); setCelebrate(false);
+    setWinner(null); setReason(""); setCelebrate(false); setPicking(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reinicia só ao trocar de partida
   }, [matchId]);
 
@@ -57,7 +61,21 @@ export function MatchSheet({
   const manual = ko && tie && tournament.settings.knockout.drawResolution === "MANUAL";
   const isPlayer = (e: Entry | null) => !!e?.players.some((p) => p.userId === myUserId);
 
-  const pool = stage.allowedClubs.length ? stage.allowedClubs.map((a) => a.club) : (clubs ?? []).filter((c) => c.active);
+  // Regra de clubes da rodada (calculada no servidor): quem escolhe e quais clubes valem.
+  const rule = round?.clubRule ?? null;
+  const allowedIds = new Set(rule?.poolClubIds ?? stage.allowedClubs.map((a) => a.club.id));
+  const pool = (clubs ?? []).filter((c) => c.active && (allowedIds.size ? allowedIds.has(c.id) : true));
+  const clubMode = rule?.mode ?? stage.clubAssignmentMode;
+  const usedInRound = new Map<string, string>();
+  for (const m of round?.matches ?? []) for (const c of m.clubs) usedInRound.set(`${m.id}:${c.side}`, c.clubId);
+  const canPickSide = (side: "HOME" | "AWAY") => {
+    if (!ready) return false;
+    if (canClubs) return true;
+    if (already || !member) return false;
+    const mine = side === "HOME" ? match.homeEntry : match.awayEntry;
+    const other = side === "HOME" ? match.awayEntry : match.homeEntry;
+    return (clubMode === "PLAYER_CHOICE" && isPlayer(mine)) || (clubMode === "OPPONENT_CHOICE" && isPlayer(other));
+  };
 
   async function save() {
     if (already && reason.trim().length < 3) return toast("Informe o motivo da correção", "err");
@@ -94,10 +112,11 @@ export function MatchSheet({
   }
 
   async function setClub(side: "HOME" | "AWAY", clubId: string) {
+    setBusy(true);
     try {
       await api(`/api/matches/${match!.id}/clubs`, { method: "PUT", body: { side, clubId } });
-      toast("Clube definido"); await onRefresh();
-    } catch (e) { toast(errorMessage(e), "err"); }
+      toast("Clube definido"); setPicking(null); setClubQ(""); await onRefresh();
+    } catch (e) { toast(errorMessage(e), "err"); } finally { setBusy(false); }
   }
 
   const sides = [
@@ -117,26 +136,55 @@ export function MatchSheet({
         {celebrate && <Confetti active />}
         <Segmented options={tabs} value={mode} onChange={setMode} />
 
-        {mode === "score" && (
+        {mode === "score" && picking && (() => {
+          const entry = picking === "HOME" ? match.homeEntry : match.awayEntry;
+          const current = match.clubs.find((c) => c.side === picking)?.clubId;
+          const term = normalizeName(clubQ);
+          const list = pool.filter((c) => !term || normalizeName(c.name).includes(term));
+          return (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <button className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-surface-2" onClick={() => { setPicking(null); setClubQ(""); }} aria-label="Voltar ao placar"><Icon name="back" /></button>
+                <div className="min-w-0"><p className="text-xs text-muted">{rule ? `${rule.label} · ${pool.length} clubes permitidos` : `${pool.length} clubes`}</p><p className="truncate font-bold">Clube de {entry?.name}</p></div>
+              </div>
+              <input className="input min-h-11 text-sm" value={clubQ} onChange={(e) => setClubQ(e.target.value)} placeholder="Buscar clube ou seleção" aria-label="Buscar clube" />
+              <div className="no-scrollbar grid max-h-[46dvh] grid-cols-2 gap-1.5 overflow-y-auto overscroll-contain">
+                {list.map((c) => {
+                  const taken = !(rule?.allowRepeat ?? stage.allowClubRepeat) && [...usedInRound.entries()].some(([k, id]) => id === c.id && k !== `${match.id}:${picking}`);
+                  const on = c.id === current;
+                  return (
+                    <button key={c.id} disabled={busy || taken} onClick={() => setClub(picking, c.id)} aria-pressed={on}
+                      className={`flex min-h-12 items-center gap-2 rounded-xl border px-2.5 text-left text-[13px] font-semibold transition-colors disabled:opacity-40 ${on ? "border-lime bg-lime/10" : "border-line bg-bg-2"}`}>
+                      <ClubBadge club={c} size={26} /><span className="min-w-0 flex-1 truncate">{c.name}</span>{taken && <span className="text-[10px] text-muted">em uso</span>}
+                    </button>
+                  );
+                })}
+                {!list.length && <p className="col-span-full py-4 text-center text-sm text-muted">Nenhum clube encontrado.</p>}
+              </div>
+            </div>
+          );
+        })()}
+
+        {mode === "score" && !picking && (
           <>
+            {rule && ready && <p className="-mb-1 text-center text-xs text-muted">{rule.label} · clubes: <b className="text-text">{CLUB_MODE_LABEL[rule.mode]}</b>{rule.pool !== "ALL" ? ` · ${rule.poolClubIds.length} permitidos` : ""}</p>}
             <div className="grid grid-cols-2 gap-3">
               {sides.map(({ side, entry }) => {
                 const club = match.clubs.find((c) => c.side === side)?.club;
-                const canPick = canClubs || (stage.clubAssignmentMode === "PLAYER_CHOICE" && isPlayer(entry));
+                const canPick = canPickSide(side);
                 return (
                   <div key={side} className="card flex flex-col items-center gap-2 p-3 text-center">
-                    <ParticipantAvatar entry={entry} size={56} />
+                    <div className="relative">
+                      <ParticipantAvatar entry={entry} size={56} />
+                      {club && <span className="absolute -bottom-1 -right-2 rounded-full bg-bg p-0.5"><ClubBadge club={club} size={26} /></span>}
+                    </div>
                     <p className="line-clamp-2 font-bold leading-tight">{entry?.name ?? "A definir"}</p>
-                    {canPick && ready ? (
-                      <label className="flex w-full items-center gap-1.5 rounded-xl bg-bg-2 px-2">
-                        {club && <ClubBadge club={club} size={18} />}
-                        <select className="min-h-11 w-full bg-transparent text-sm font-semibold outline-none" value={club?.id ?? ""} onChange={(e) => e.target.value && setClub(side, e.target.value)} aria-label={`Clube de ${entry?.name}`}>
-                          <option value="">Escolher clube</option>
-                          {pool.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      </label>
+                    {canPick ? (
+                      <button className={`flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border px-2 text-sm font-semibold ${club ? "border-line bg-bg-2" : "border-dashed border-lime/60 text-lime"}`} onClick={() => setPicking(side)} aria-label={`${club ? "Trocar" : "Escolher"} clube de ${entry?.name}`}>
+                        {club ? <><span className="truncate">{club.name}</span><Icon name="edit" size={14} className="shrink-0 text-muted" /></> : <><Icon name="plus" size={16} />Escolher clube</>}
+                      </button>
                     ) : (
-                      <span className="flex items-center gap-1.5 text-sm text-muted">{club ? <><ClubBadge club={club} size={18} />{club.name}</> : "Clube a definir"}</span>
+                      <span className="flex min-h-11 items-center gap-1.5 text-sm text-muted">{club ? club.name : ready && clubMode === "OPPONENT_CHOICE" ? "Adversário escolhe" : ready && clubMode === "PLAYER_CHOICE" ? "Jogador escolhe" : "Clube a definir"}</span>
                     )}
                   </div>
                 );

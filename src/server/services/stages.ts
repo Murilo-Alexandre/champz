@@ -9,6 +9,8 @@ import {
 } from "@/lib/tournament/knockout";
 import type { TournamentSettings } from "@/lib/tournament/settings";
 import { audit } from "./audit";
+import { assertClubRulesFeasible, catalogRows, ruleForRound } from "./clubRules";
+import { phaseKeyFor, resolveClubRule } from "@/lib/tournament/clubRules";
 import { requirePermission, requireRead } from "./access";
 import { settingsOf } from "./tournaments";
 import { badRequest, conflict, notFound } from "../errors";
@@ -22,6 +24,13 @@ function knockoutRoundName(entrants: number, round: number) {
   return ({ 2: "Final", 4: "Semifinal", 8: "Quartas de final", 16: "Oitavas de final", 32: "16 avos de final" } as Record<number, string>)[entrants] ?? `Rodada ${round}`;
 }
 
+/** Com regras por fase no regulamento, a fase só guarda o modo da sua 1ª rodada (exibição); a lista vem do regulamento. */
+function stageClubsFrom(settings: TournamentSettings, key: string, clubs: ClubsInput): ClubsInput {
+  const rule = resolveClubRule(settings.clubRules, key);
+  if (!rule) return clubs;
+  return { mode: rule.mode, allowRepeat: rule.allowRepeat, allowedClubIds: [] };
+}
+
 async function setStageClubs(tx: Tx, stageId: string, clubs: ClubsInput) {
   if (!clubs?.allowedClubIds?.length) return;
   const found = await tx.club.count({ where: { id: { in: clubs.allowedClubIds }, active: true } });
@@ -33,6 +42,7 @@ async function createRoundRobinStage(
   tx: Tx,
   p: { tournamentId: string; order: number; type: "LEAGUE" | "GROUP"; name: string; groups: string[][]; legs: 1 | 2; clubs: ClubsInput; settings: TournamentSettings; drawId: string },
 ) {
+  p = { ...p, clubs: stageClubsFrom(p.settings, "GROUPS", p.clubs) };
   const stage = await tx.stage.create({
     data: {
       tournamentId: p.tournamentId, order: p.order, type: p.type, name: p.name, legs: p.legs,
@@ -75,6 +85,7 @@ export async function createKnockoutStage(
   tx: Tx,
   p: { tournamentId: string; order: number; name: string; plan: BracketPlan; clubs: ClubsInput; settings: TournamentSettings; drawId: string; sourceStageId?: string },
 ) {
+  p = { ...p, clubs: stageClubsFrom(p.settings, phaseKeyFor("KNOCKOUT", p.plan.size / 2), p.clubs) };
   const stage = await tx.stage.create({
     data: {
       tournamentId: p.tournamentId, order: p.order, type: "KNOCKOUT", name: p.name, legs: 1,
@@ -161,6 +172,7 @@ export async function generateInitialStage(db: Db, actorId: string, tournamentId
     const entries = await tx.entry.findMany({ where: { tournamentId, active: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
     const ids = entries.map((e) => e.id);
     if (ids.length < 2) throw badRequest("TOO_FEW_ENTRIES", "Cadastre ao menos 2 participantes");
+    await assertClubRulesFeasible(tx, settings, tournament.format, ids.length);
     const seed = input.seed ?? newSeed();
 
     let groups: string[][];
@@ -362,7 +374,7 @@ export async function getStageView(db: DbOrTx, userId: string | null, stageId: s
   if (!stage) throw notFound("Fase");
   const { tournament } = await requireRead(db, stage.tournamentId, userId);
   const settings = settingsOf(tournament);
-  const [rounds, standings] = await Promise.all([
+  const [rawRounds, standings, catalog] = await Promise.all([
     db.round.findMany({
       where: { stageId },
       orderBy: { number: "asc" },
@@ -374,7 +386,10 @@ export async function getStageView(db: DbOrTx, userId: string | null, stageId: s
       },
     }),
     stage.type === "KNOCKOUT" ? Promise.resolve([] as Awaited<ReturnType<typeof loadGroupStandings>>) : loadGroupStandings(db, stageId, settings),
+    catalogRows(db),
   ]);
+  // Regra de clubes efetiva por rodada (quem escolhe e quais clubes valem), para a UI de cada partida.
+  const rounds = rawRounds.map((r) => ({ ...r, clubRule: ruleForRound(settings, { ...stage, allowedClubs: stage.allowedClubs }, r.matches.length, catalog) }));
   return { stage, rounds, standings };
 }
 

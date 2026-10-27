@@ -3,22 +3,23 @@
  * e o campeonato "[TESTE] FIFA 2026 — homologação" com os grupos de docs/TESTES.md (rotulado como teste).
  * Uso: npm run db:seed
  */
+import { existsSync, readFileSync } from "node:fs";
 import { config } from "dotenv";
 
 config({ path: [".env.local", ".env"], quiet: true });
 
-const CLUBS = [
-  "Real Madrid", "Barcelona", "Atlético de Madrid", "Manchester City", "Manchester United", "Liverpool", "Arsenal", "Chelsea",
-  "Tottenham", "Bayern de Munique", "Borussia Dortmund", "Bayer Leverkusen", "PSG", "Inter de Milão", "Milan", "Juventus",
-  "Napoli", "Benfica", "Porto", "Ajax", "Flamengo", "Palmeiras", "Corinthians", "São Paulo",
-];
+type CatalogClub = { name: string; slug: string; category: "NATIONAL" | "INTERNATIONAL" | "NATIONAL_TEAM"; shortName: string; country: string };
+const CLUBS: CatalogClub[] = JSON.parse(readFileSync("prisma/club-catalog.json", "utf8"));
 
 async function main() {
   const { getPrisma } = await import("../src/lib/db/prisma");
   const db = getPrisma();
   let created = 0;
-  for (const name of CLUBS) {
-    const r = await db.club.upsert({ where: { name }, create: { name }, update: {} });
+  // Idempotente: casa pelo nome (IDs de clubes já usados em campeonatos são preservados) e só completa metadados.
+  for (const c of CLUBS) {
+    const crestPath = existsSync(`public/crests/${c.slug}.webp`) ? `/crests/${c.slug}.webp` : null;
+    const data = { slug: c.slug, category: c.category, shortName: c.shortName, country: c.country, crestPath };
+    const r = await db.club.upsert({ where: { name: c.name }, create: { name: c.name, ...data }, update: data });
     if (r.createdAt.getTime() > Date.now() - 10_000) created++;
   }
   console.log(`Clubes: ${CLUBS.length} no catálogo (${created} novos)`);

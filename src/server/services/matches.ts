@@ -6,6 +6,7 @@ import { resolveKnockoutWinner, selectQualifiers } from "@/lib/tournament/knocko
 import { drawClubs } from "@/lib/tournament/clubs";
 import { newSeed } from "@/lib/tournament/rng";
 import { audit } from "./audit";
+import { loadRoundRule } from "./clubRules";
 import { requirePermission, requireRead, type Access } from "./access";
 import { settingsOf } from "./tournaments";
 import { loadGroupStandings, placeInNextMatch } from "./stages";
@@ -182,43 +183,57 @@ export async function cancelMatch(db: Db, actorId: string, matchId: string, inpu
 
 // ───────────── Clubes por partida ─────────────
 
-async function allowedClubIds(tx: Tx, stageId: string) {
-  const list = await tx.stageClub.findMany({ where: { stageId }, select: { clubId: true } });
-  if (list.length) return list.map((c) => c.clubId);
-  return (await tx.club.findMany({ where: { active: true }, select: { id: true } })).map((c) => c.id);
-}
+const MODE_DENIED: Record<string, string> = {
+  RANDOM: "Nesta fase os clubes são sorteados.",
+  MANUAL: "Nesta fase o organizador define os clubes.",
+  PLAYER_CHOICE: "Só o próprio jogador escolhe o clube deste lado.",
+  OPPONENT_CHOICE: "Nesta fase quem escolhe o clube deste lado é o adversário.",
+};
 
+/**
+ * Define o clube de um lado. Quem pode: quem tem TEAM_EDIT (sempre); PLAYER_CHOICE = jogador da própria inscrição;
+ * OPPONENT_CHOICE = jogador da inscrição adversária. Valida lista permitida e repetição da regra da fase/rodada.
+ */
 export async function setMatchClub(db: Db, actorId: string, matchId: string, input: z.infer<typeof setMatchClubSchema>) {
   return db.$transaction(async (tx) => {
     const match = await tx.match.findUnique({ where: { id: matchId }, include: { stage: true, clubs: true } });
     if (!match) throw notFound("Partida");
     const access = await requireRead(tx, match.tournamentId, actorId);
+    if (match.status === "BYE" || match.status === "CANCELLED") throw conflict("MATCH_NOT_PLAYABLE", "Partida sem confronto a disputar");
     const sideEntryId = input.side === "HOME" ? match.homeEntryId : match.awayEntryId;
-    if (!sideEntryId) throw conflict("MATCH_NOT_READY", "Lado ainda não definido");
+    const otherEntryId = input.side === "HOME" ? match.awayEntryId : match.homeEntryId;
+    if (!sideEntryId || !otherEntryId) throw conflict("MATCH_NOT_READY", "Confronto ainda não definido");
+    const rule = await loadRoundRule(tx, match.roundId);
 
-    let source: "MANUAL" | "PLAYER_CHOICE" = "MANUAL";
+    let source: "MANUAL" | "PLAYER_CHOICE" | "OPPONENT_CHOICE" = "MANUAL";
     if (!hasPermission(access.member, "TEAM_EDIT")) {
-      const isPlayer = await tx.entryPlayer.findFirst({ where: { entryId: sideEntryId, userId: actorId } });
-      if (match.stage.clubAssignmentMode !== "PLAYER_CHOICE" || !isPlayer || !access.member) throw forbidden();
-      source = "PLAYER_CHOICE";
+      if (!access.member) throw forbidden();
+      if (["COMPLETED", "WALKOVER"].includes(match.status)) throw forbidden("Partida encerrada: só o organizador altera os clubes");
+      const playerOf = async (entryId: string) => !!(await tx.entryPlayer.findFirst({ where: { entryId, userId: actorId } }));
+      if (rule.mode === "PLAYER_CHOICE" && (await playerOf(sideEntryId))) source = "PLAYER_CHOICE";
+      else if (rule.mode === "OPPONENT_CHOICE" && (await playerOf(otherEntryId))) source = "OPPONENT_CHOICE";
+      else throw forbidden(MODE_DENIED[rule.mode]);
     }
     const club = await tx.club.findUnique({ where: { id: input.clubId } });
     if (!club || !club.active) throw badRequest("INVALID_CLUB", "Clube inválido ou inativo");
-    const allowed = await allowedClubIds(tx, match.stageId);
-    if (!allowed.includes(club.id)) throw badRequest("CLUB_NOT_ALLOWED", "Clube fora da lista permitida nesta fase");
-    if (!match.stage.allowClubRepeat) {
+    if (!rule.poolClubIds.includes(club.id)) throw badRequest("CLUB_NOT_ALLOWED", `${club.name} não está entre os clubes permitidos em ${rule.label}`);
+    if (!rule.allowRepeat) {
       const usedInRound = await tx.matchClub.findFirst({
         where: { clubId: club.id, match: { roundId: match.roundId }, NOT: { matchId, side: input.side } },
       });
-      if (usedInRound) throw conflict("CLUB_TAKEN", "Clube já usado nesta rodada (repetição desativada)");
+      if (usedInRound) throw conflict("CLUB_TAKEN", `${club.name} já está em uso nesta rodada (repetição desativada)`);
     }
     const before = match.clubs.find((c) => c.side === input.side) ?? null;
+    if (before?.clubId === club.id) return before;
     const saved = await tx.matchClub.upsert({
       where: { matchId_side: { matchId, side: input.side } },
       create: { matchId, side: input.side, clubId: club.id, source, setById: actorId },
       update: { clubId: club.id, source, setById: actorId },
     });
-    await audit(tx, { tournamentId: match.tournamentId, actorUserId: actorId, targetType: "MATCH_CLUB", targetId: matchId, action: before ? "CLUB_CHANGE" : "CLUB_SET", before, after: saved, reason: input.reason });
+    await audit(tx, {
+      tournamentId: match.tournamentId, actorUserId: actorId, targetType: "MATCH_CLUB", targetId: matchId,
+      action: before ? "CLUB_CHANGE" : "CLUB_SET", before, after: { ...saved, clubName: club.name, phase: rule.key, mode: rule.mode }, reason: input.reason,
+    });
     return saved;
   });
 }
@@ -230,21 +245,26 @@ export async function drawRoundClubs(db: Db, actorId: string, roundId: string, i
     if (!round) throw notFound("Rodada");
     const access = await requireRead(tx, round.stage.tournamentId, actorId);
     if (!hasPermission(access.member, "TEAM_EDIT") && !hasPermission(access.member, "DRAW_EDIT")) throw forbidden();
+    const rule = await loadRoundRule(tx, roundId);
 
-    const playable = round.matches.filter((m) => m.homeEntryId && m.awayEntryId && !["BYE", "CANCELLED"].includes(m.status));
+    const playable = round.matches.filter((m) => m.homeEntryId && m.awayEntryId && !["BYE", "CANCELLED", "COMPLETED", "WALKOVER"].includes(m.status));
     const slots = playable.flatMap((m) =>
       (["HOME", "AWAY"] as const).filter((side) => input.overwrite || !m.clubs.some((c) => c.side === side)).map((side) => ({ matchId: m.id, side })),
     );
     if (!slots.length) return { assignments: [], drawId: null };
-    let pool = await allowedClubIds(tx, round.stageId);
-    if (!round.stage.allowClubRepeat && !input.overwrite) {
-      const used = new Set(playable.flatMap((m) => m.clubs.map((c) => c.clubId)));
+    let pool = rule.poolClubIds;
+    if (!rule.allowRepeat) {
+      const kept = new Set(slots.map((s) => `${s.matchId}:${s.side}`));
+      const used = new Set(round.matches.flatMap((m) => m.clubs.filter((c) => !kept.has(`${m.id}:${c.side}`)).map((c) => c.clubId)));
       pool = pool.filter((id) => !used.has(id));
+      if (pool.length < slots.length) {
+        throw conflict("NOT_ENOUGH_CLUBS", `${rule.label}: ${pool.length} clube(s) disponíveis para ${slots.length} vagas sem repetição. Libere mais clubes ou permita repetição nesta fase.`);
+      }
     }
     const seed = input.seed ?? newSeed();
-    const assignments = drawClubs(slots, pool, round.stage.allowClubRepeat, seed);
+    const assignments = drawClubs(slots, pool, rule.allowRepeat, seed);
     const draw = await tx.draw.create({
-      data: { tournamentId: round.stage.tournamentId, kind: "CLUBS", seed, input: { roundId, pool, allowRepeat: round.stage.allowClubRepeat }, result: assignments, createdById: actorId },
+      data: { tournamentId: round.stage.tournamentId, kind: "CLUBS", seed, input: { roundId, phase: rule.key, pool, allowRepeat: rule.allowRepeat }, result: assignments, createdById: actorId },
     });
     for (const a of assignments) {
       await tx.matchClub.upsert({
@@ -253,7 +273,7 @@ export async function drawRoundClubs(db: Db, actorId: string, roundId: string, i
         update: { clubId: a.clubId, source: "RANDOM", setById: actorId },
       });
     }
-    await audit(tx, { tournamentId: round.stage.tournamentId, actorUserId: actorId, targetType: "ROUND", targetId: roundId, action: "CLUB_DRAW", after: { drawId: draw.id, seed, assignments } });
+    await audit(tx, { tournamentId: round.stage.tournamentId, actorUserId: actorId, targetType: "ROUND", targetId: roundId, action: "CLUB_DRAW", after: { drawId: draw.id, seed, phase: rule.key, assignments } });
     return { assignments, drawId: draw.id };
   });
 }

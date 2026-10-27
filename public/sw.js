@@ -1,7 +1,7 @@
 /* Champz service worker — mínimo e seguro.
  * Cacheia apenas o shell estático (ícones, CSS/JS versionados de /_next/static).
  * NUNCA cacheia /api, autenticação, fotos privadas (URLs assinadas) ou páginas com dados do usuário. */
-const CACHE = "champz-static-v2"; // trocar a versão força a limpeza do cache antigo (ícones novos)
+const CACHE = "champz-static-v3"; // trocar a versão força a limpeza do cache antigo (ícones novos)
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
@@ -15,7 +15,7 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  const isStatic = url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/") || url.pathname.startsWith("/brand/");
+  const isStatic = url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/") || url.pathname.startsWith("/brand/") || url.pathname.startsWith("/crests/");
   if (!isStatic) return; // rede direta para todo o resto
   event.respondWith(
     caches.open(CACHE).then(async (cache) => {

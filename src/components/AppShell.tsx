@@ -3,11 +3,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, ApiError, errorMessage } from "@/lib/client/api";
-import { authClient } from "@/lib/client/auth-client";
+import { forgetSession, sessionMemo } from "@/lib/client/session";
 import type { Me } from "@/lib/client/types";
 import { gsap, reducedMotion } from "@/lib/client/motion";
 import { Icon, Spinner, ToastProvider } from "./ui";
 import { BrandLogo } from "@/components/BrandLogo";
+import { PasswordChangeForm } from "./PasswordChangeForm";
 
 const MeCtx = createContext<{ me: Me; reload: () => Promise<void> } | null>(null);
 export function useMe() {
@@ -30,12 +31,14 @@ function Splash() {
 /** Área autenticada: carrega o perfil, conduz troca de senha/username pendentes e mostra a navegação inferior. */
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const [me, setMe] = useState<Me | null>(null);
+  // Perfil já validado nesta aba: se a área logada remontar, nada de splash; a sessão é revalidada em seguida.
+  const [me, setMeState] = useState<Me | null>(() => sessionMemo.me);
+  const setMe = (m: Me | null) => { sessionMemo.me = m; setMeState(m); };
   const load = async () => {
     try {
       setMe(await api<Me>("/api/me"));
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) router.replace(`/entrar?next=${encodeURIComponent(window.location.pathname)}`);
+      if (e instanceof ApiError && e.status === 401) { forgetSession(); router.replace(`/entrar?next=${encodeURIComponent(window.location.pathname)}`); }
     }
   };
   useEffect(() => {
@@ -97,29 +100,13 @@ function BottomNav({ admin }: { admin: boolean }) {
 }
 
 function ForcePasswordChange({ onDone }: { onDone: () => Promise<void> }) {
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (next.length < 8) return setErr("A nova senha precisa de pelo menos 8 caracteres");
-    setBusy(true); setErr(null);
-    const r = await authClient.changePassword({ currentPassword: current, newPassword: next, revokeOtherSessions: true });
-    setBusy(false);
-    if (r.error) return setErr(r.error.message ?? "Não foi possível trocar a senha");
-    await onDone();
-  };
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-5">
-      <form onSubmit={submit} className="card flex flex-col gap-4 p-6">
+      <div className="card flex flex-col gap-4 p-6">
         <h1 className="font-display text-3xl font-bold">Crie sua senha</h1>
         <p className="text-sm text-muted">Você entrou com uma senha temporária. Defina uma senha pessoal para continuar.</p>
-        <div><label className="label" htmlFor="cur">Senha temporária</label><input id="cur" className="input" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required /></div>
-        <div><label className="label" htmlFor="new">Nova senha</label><input id="new" className="input" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required /></div>
-        {err && <p className="text-sm text-danger" role="alert">{err}</p>}
-        <button className="btn btn-primary" disabled={busy}>{busy ? <Spinner /> : "Salvar e continuar"}</button>
-      </form>
+        <PasswordChangeForm onDone={onDone} currentLabel="Senha temporária" submitLabel="Salvar e continuar" />
+      </div>
     </main>
   );
 }

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { tournamentSettingsSchema } from "@/lib/tournament/settings";
+import { PASSWORD_MAX, PASSWORD_MIN } from "@/lib/password-policy";
 
 const id = z.string().min(1).max(64);
 const reason = z.string().trim().max(500).optional();
@@ -53,7 +54,7 @@ export const generateStageSchema = z.object({
   seeding: z.array(id).optional(),
   clubs: z
     .object({
-      mode: z.enum(["RANDOM", "PLAYER_CHOICE", "MANUAL"]).default("MANUAL"),
+      mode: z.enum(["RANDOM", "PLAYER_CHOICE", "MANUAL", "OPPONENT_CHOICE"]).default("MANUAL"),
       allowRepeat: z.boolean().default(true),
       allowedClubIds: z.array(id).default([]),
     })
@@ -94,7 +95,7 @@ export const setMatchClubSchema = z.object({
 });
 
 export const stageClubsSchema = z.object({
-  mode: z.enum(["RANDOM", "PLAYER_CHOICE", "MANUAL"]).optional(),
+  mode: z.enum(["RANDOM", "PLAYER_CHOICE", "MANUAL", "OPPONENT_CHOICE"]).optional(),
   allowRepeat: z.boolean().optional(),
   allowedClubIds: z.array(id).optional(),
 });
@@ -159,7 +160,7 @@ export const adminCreateUserSchema = z.object({
   email: optionalEmail,
   username: usernameField,
   /** Opcional: senha definida pelo admin; sem ela o sistema gera uma temporária. */
-  password: z.string().min(8).max(128).optional(),
+  password: z.string().min(PASSWORD_MIN).max(PASSWORD_MAX).optional(),
   /** Exigir troca de senha no primeiro acesso (padrão: sim). */
   mustChangePassword: z.boolean().default(true),
   role: z.enum(["ADMIN", "USER"]).default("USER"),

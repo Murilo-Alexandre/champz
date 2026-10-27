@@ -6,6 +6,7 @@ import { authClient } from "@/lib/client/auth-client";
 import { gsap, useGSAP, reducedMotion } from "@/lib/client/motion";
 import { Icon, Spinner } from "@/components/ui";
 import { BrandLogo } from "@/components/BrandLogo";
+import { forgetSession } from "@/lib/client/session";
 
 const GOOGLE_ERRORS: Record<string, string> = {
   google: "Essa conta Google não está vinculada a nenhum usuário do Champz. Entre com usuário e senha e vincule o Google no seu perfil.",
@@ -45,6 +46,7 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
       shake();
       return;
     }
+    forgetSession();
     router.replace(next);
   }
 

@@ -180,7 +180,9 @@ describe("FIFA 2026 — homologação ponta a ponta (12 participantes, 3x4, quar
     await M.s.updateStageClubs(M.prisma, owner.id, groupStageId, { mode: "RANDOM", allowRepeat: false, allowedClubIds: clubs.map((c) => c.id) });
     const round3 = await M.prisma.round.findFirstOrThrow({ where: { stageId: groupStageId, number: 3 } });
     const drawn = await M.m.drawRoundClubs(M.prisma, owner.id, round3.id, { overwrite: false });
-    expect(drawn.assignments.length).toBe(12); // 6 jogos da rodada 3, 2 lados cada
+    // Jogos da rodada 3 ainda sem resultado, 2 lados cada (partida já disputada não recebe sorteio).
+    const open = await M.prisma.match.count({ where: { roundId: round3.id, status: { notIn: ["COMPLETED", "WALKOVER"] } } });
+    expect(drawn.assignments.length).toBe(open * 2);
     expect(new Set(drawn.assignments.map((a) => a.clubId)).size).toBe(drawn.assignments.length);
     const match = await findMatch("Bruno", "Jailton");
     const other = await M.prisma.club.create({ data: { name: "Clube Fora da Lista" } });

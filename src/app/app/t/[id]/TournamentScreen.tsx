@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
-import { useApi } from "@/lib/client/hooks";
+import { pageCache, useApi } from "@/lib/client/hooks";
 import type { Club, Entry, StageView, TournamentView } from "@/lib/client/types";
 import { FORMAT_LABEL, STATUS_LABEL } from "@/lib/client/labels";
 import { hasPermission } from "@/lib/permissions";
@@ -29,8 +29,10 @@ export function TournamentScreen() {
   const router = useRouter();
   const toast = useToast();
   const { me } = useMe();
-  const view = useApi<TournamentView>(`/api/tournaments/${id}`);
-  const [stages, setStages] = useState<StageView[] | null>(null);
+  // Página anterior fica oculta pelo Next ao navegar; sem id não busca nada.
+  const view = useApi<TournamentView>(id ? `/api/tournaments/${id}` : null);
+  const [stages, setStagesState] = useState<StageView[] | null>(() => (pageCache.get(`stages:${id}`) as StageView[] | undefined) ?? null);
+  const setStages = useCallback((list: StageView[]) => { pageCache.set(`stages:${id}`, list); setStagesState(list); }, [id]);
   const [tab, setTab] = useState<Tab>("games");
   const [openId, setOpenId] = useState<string | null>(null);
   const [roundIdx, setRoundIdx] = useState<number | null>(null);
@@ -44,12 +46,12 @@ export function TournamentScreen() {
     // Ordem estável dentro da rodada (posição na chave, depois ordem de criação).
     for (const st of list) for (const r of st.rounds) r.matches.sort((a, b) => (a.bracketPosition ?? 0) - (b.bracketPosition ?? 0) || a.id.localeCompare(b.id));
     setStages(list);
-  }, []);
+  }, [setStages]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- busca das fases após o campeonato
     if (view.data) loadStages(view.data).catch(() => setStages([]));
-  }, [view.data, loadStages]);
+  }, [view.data, loadStages, setStages]);
 
   const reloadAll = useCallback(async () => { await view.reload(); }, [view]);
 
@@ -86,6 +88,7 @@ export function TournamentScreen() {
   const rrDone = !!rr && rr.rounds.every((r) => r.matches.every((m) => ["COMPLETED", "WALKOVER", "BYE", "CANCELLED"].includes(m.status)));
   const open = openId ? stages?.flatMap((x) => x.rounds.flatMap((r) => r.matches)).find((m) => m.id === openId) ?? null : null;
   const openMatchStage = open ? stages?.find((s) => s.stage.id === open.stageId)?.stage ?? null : null;
+  const openRound = open ? stages?.flatMap((s) => s.rounds).find((r) => r.id === open.roundId) ?? null : null;
 
   async function generateFirstStage() {
     setBusy(true);
@@ -125,7 +128,7 @@ export function TournamentScreen() {
       const byId = new Map(clubs.map((c) => [c.id, c]));
       const matches = new Map(stage.rounds.flatMap((x) => x.matches).map((m) => [m.id, m]));
       setDraw({
-        pool: stage.stage.allowedClubs.length ? stage.stage.allowedClubs.map((a) => a.club) : clubs,
+        pool: (() => { const ids = new Set(stage.rounds.find((x) => x.id === roundId)?.clubRule?.poolClubIds ?? stage.stage.allowedClubs.map((a) => a.club.id)); return ids.size ? clubs.filter((c) => ids.has(c.id)) : clubs; })(),
         reveals: r.assignments.map((a) => {
           const m = matches.get(a.matchId);
           const e = a.side === "HOME" ? m?.homeEntry : m?.awayEntry;
@@ -184,7 +187,7 @@ export function TournamentScreen() {
                   })}
                 </div>
               )}
-              {round && hasPermission(member, "TEAM_EDIT") && playStage.stage.clubAssignmentMode === "RANDOM" && round.matches.some((m) => m.homeEntryId && m.awayEntryId && m.clubs.length < 2 && m.status === "READY") && (
+              {round && hasPermission(member, "TEAM_EDIT") && (round.clubRule?.mode ?? playStage.stage.clubAssignmentMode) === "RANDOM" && round.matches.some((m) => m.homeEntryId && m.awayEntryId && m.clubs.length < 2 && m.status === "READY") && (
                 <button data-reveal className="btn btn-ghost w-full" onClick={() => drawClubs(playStage, round.id)} disabled={busy}>{busy ? <Spinner /> : <><Icon name="dice" /> Sortear clubes da rodada</>}</button>
               )}
               {round?.matches.filter((m) => m.status !== "BYE" || m.homeEntryId || m.awayEntryId).map((m) => <MatchCard key={m.id} match={m} onOpen={(m) => setOpenId(m.id)} />)}
@@ -218,13 +221,14 @@ export function TournamentScreen() {
         ) : tab === "history" ? (
           <HistoryPanel tournamentId={t.id} entries={entries} />
         ) : tab === "manage" ? (
-          <ManagePanel view={view.data} onChanged={reloadAll} />
+          <ManagePanel view={view.data} onChanged={reloadAll} lockedPhases={[...new Set((stages ?? []).flatMap((s) => s.rounds.filter((r) => r.clubRule && r.matches.some((m) => m.status === "COMPLETED" || m.status === "WALKOVER")).map((r) => r.clubRule!.key)))]} />
         ) : null}
       </div>
 
       <MatchSheet
         match={open}
         stage={openMatchStage}
+        round={openRound}
         tournament={t}
         member={member}
         entries={entries}

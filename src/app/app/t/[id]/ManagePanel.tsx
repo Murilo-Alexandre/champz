@@ -2,7 +2,10 @@
 import { useState } from "react";
 import { api, errorMessage } from "@/lib/client/api";
 import { useApi } from "@/lib/client/hooks";
-import type { Membership, PublicUser, TournamentView } from "@/lib/client/types";
+import type { Club, ClubRules, Membership, PublicUser, TournamentView } from "@/lib/client/types";
+import { plannedPhases } from "@/lib/tournament/clubRules";
+import { ClubRulesEditor, DEFAULT_RULE, clubRulesErrors } from "@/components/ClubRules";
+import { ParticipantSearch } from "@/components/ParticipantSearch";
 import { ROLE_LABEL, TIEBREAKER_LABEL } from "@/lib/client/labels";
 import { hasPermission } from "@/lib/permissions";
 import { Icon, Segmented, Sheet, Spinner, Toggle, useToast } from "@/components/ui";
@@ -18,7 +21,7 @@ const FLAGS: { key: keyof Membership; label: string; hint: string }[] = [
   { key: "canManageMembers", label: "Gerenciar membros", hint: "Permissões e convites" },
 ];
 
-export function ManagePanel({ view, onChanged }: { view: TournamentView; onChanged: () => Promise<void> }) {
+export function ManagePanel({ view, onChanged, lockedPhases = [] }: { view: TournamentView; onChanged: () => Promise<void>; lockedPhases?: string[] }) {
   const { tournament: t, myMembership: me, entries } = view;
   const toast = useToast();
   const members = useApi<Member[]>(`/api/tournaments/${t.id}/members`);
@@ -30,7 +33,16 @@ export function ManagePanel({ view, onChanged }: { view: TournamentView; onChang
   const [invite, setInvite] = useState<string | null>(null);
   const [withdraw, setWithdraw] = useState<{ id: string; name: string } | null>(null);
   const [reason, setReason] = useState("");
-  const [newEntry, setNewEntry] = useState("");
+  const [guest, setGuest] = useState("");
+  const clubs = useApi<Club[]>("/api/clubs");
+  const canRules = hasPermission(me, "RULE_EDIT");
+  const [rules, setRules] = useState<ClubRules>(() => t.settings.clubRules ?? { default: DEFAULT_RULE, phases: {} });
+  const activeCount = entries.filter((e) => e.active).length;
+  const phases = plannedPhases(t.format, activeCount, t.settings.groupStage);
+  const rulesDirty = JSON.stringify(rules) !== JSON.stringify(t.settings.clubRules ?? { default: DEFAULT_RULE, phases: {} });
+  const rulesErr = Object.values(clubRulesErrors(rules, phases, clubs.data ?? []))[0];
+  const takenUserIds = new Set(entries.flatMap((e) => e.players.flatMap((p) => (p.userId ? [p.userId] : []))));
+  const addEntry = (player: { userId: string } | { guestName: string }) => run("entry", () => api(`/api/tournaments/${t.id}/entries`, { body: { players: [player] } }), "Participante inscrito");
 
   async function run(key: string, fn: () => Promise<unknown>, ok: string) {
     setBusy(key);
@@ -54,11 +66,14 @@ export function ManagePanel({ view, onChanged }: { view: TournamentView; onChang
             </li>
           ))}
         </ul>
-        {canDraw && t.status !== "FINISHED" && t.entryType === "SOLO" && (
-          <form className="mt-3 flex gap-2" onSubmit={(ev) => { ev.preventDefault(); const v = newEntry.trim(); if (!v) return; run("entry", () => api(`/api/tournaments/${t.id}/entries`, { body: { players: [v.startsWith("@") ? { username: v.slice(1) } : { guestName: v }] } }), "Participante inscrito").then((ok) => ok && setNewEntry("")); }}>
-            <input className="input" value={newEntry} onChange={(e) => setNewEntry(e.target.value)} placeholder="Nome ou @usuario" />
-            <button className="btn btn-primary shrink-0" disabled={busy === "entry"}>{busy === "entry" ? <Spinner /> : <Icon name="plus" />}</button>
-          </form>
+        {canMembers && ["DRAFT", "OPEN"].includes(t.status) && t.entryType === "SOLO" && (
+          <div className="mt-3 flex flex-col gap-2">
+            <ParticipantSearch takenUserIds={takenUserIds} onPick={(u) => addEntry({ userId: u.id })} onNoMatch={(q) => setGuest(q)} />
+            <form className="flex gap-2" onSubmit={(ev) => { ev.preventDefault(); const v = guest.trim().replace(/\s+/g, " "); if (v.length < 2) return; addEntry({ guestName: v }).then((ok) => ok && setGuest("")); }}>
+              <input className="input" value={guest} onChange={(e) => setGuest(e.target.value)} placeholder="Convidado sem conta" maxLength={60} aria-label="Nome do convidado sem conta" />
+              <button className="btn btn-ghost shrink-0" disabled={busy === "entry"} aria-label="Adicionar convidado">{busy === "entry" ? <Spinner /> : <Icon name="plus" />}</button>
+            </form>
+          </div>
         )}
       </section>
 
@@ -104,6 +119,24 @@ export function ManagePanel({ view, onChanged }: { view: TournamentView; onChang
         </dl>
         <p className="mt-3 text-xs text-muted">Versão {t.settingsVersion} das regras. Alterações ficam no histórico.</p>
       </section>
+
+      {canRules && t.status !== "FINISHED" && t.status !== "CANCELLED" && (
+        <section data-reveal className="flex flex-col gap-3">
+          <div className="px-1">
+            <h3 className="font-display text-xl font-bold">Clubes por fase</h3>
+            <p className="text-xs text-muted">Fases já disputadas mantêm a regra. Alterações ficam no histórico.</p>
+          </div>
+          <ClubRulesEditor rules={rules} onChange={setRules} phases={phases} clubs={clubs.data ?? []} locked={lockedPhases} />
+          {rulesDirty && (
+            <div className="flex gap-2">
+              <button className="btn btn-ghost" onClick={() => setRules(t.settings.clubRules ?? { default: DEFAULT_RULE, phases: {} })}>Descartar</button>
+              <button className="btn btn-primary flex-1" disabled={busy === "rules" || !!rulesErr} onClick={() => run("rules", () => api(`/api/tournaments/${t.id}/settings`, { method: "PATCH", body: { settings: { clubRules: rules }, expectedVersion: t.settingsVersion, reason: "Regras de clubes por fase" } }), "Regras de clubes salvas")}>
+                {busy === "rules" ? <Spinner /> : "Salvar regras de clubes"}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       <Sheet open={!!edit} onClose={() => setEdit(null)} title={edit?.user.name}>
         {edit && <MemberEditor key={edit.id} member={edit} onSave={async (patch) => { const ok = await run("perm", () => api(`/api/tournaments/${t.id}/members/${edit.id}`, { method: "PATCH", body: patch }), "Permissões salvas"); if (ok) setEdit(null); }} busy={busy === "perm"} />}
